@@ -8,6 +8,28 @@ runtime=0
 MIN_FILE_SIZE=$((5 * 1024 * 1024))
 LOG_FILE="rclone_upload.log"
 CLEAN_LOG="file_cleanup.log"
+# 传输稳定性与重试参数（可按需调整）
+CONNECT_TIMEOUT="15s"       # 建连超时
+IO_TIMEOUT="5m"             # 传输空闲超时，超过该时间无数据传输则中断并重试
+EXPECT_CONTINUE="2s"        # HTTP 100-continue 等待时间
+RETRIES=10                   # 高层重试次数
+LOW_LEVEL_RETRIES=20         # 底层重试次数
+RETRIES_SLEEP="30s"         # 重试间隔
+TRANSFERS=4                  # 并发传输数
+CHECKERS=8                   # 并发校验数
+TPSLIMIT=2                   # 每秒请求限制，视网盘策略可适当调大/调小
+BUFFER_SIZE="32M"           # 缓冲区大小
+STATS="30s"                 # 统计输出间隔（配合 -P）
+# 进程看门狗（可用 timeout/gtimeout 包装 rclone，防止永久挂起）
+MAX_RCLONE_RUN="6h"         # rclone 单次运行最长允许时间
+KILL_AFTER="30s"            # 超时后宽限期，随后强制 kill
+if command -v timeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="gtimeout"
+else
+  TIMEOUT_BIN=""
+fi
 
 # 函数: 清理过小的文件
 function cleanup_small_files() {
@@ -56,11 +78,42 @@ do
       source_dir="up"
       dest_dir="${temp}:milo/strip"
 
-      # 执行 rclone move 命令并记录日志
-      rclone move "$source_dir" "$dest_dir" --buffer-size 32M --transfers 4 -P --tpslimit 2 --low-level-retries 2 --retries 2 --log-file="$LOG_FILE" --log-level=ERROR
+      # 若 up 为空则跳过，避免无意义的 rclone 调用
+      if [ -z "$(ls -A "$source_dir" 2>/dev/null)" ]; then
+        sleep 10
+        continue
+      fi
+
+      # 组装 rclone 命令
+      RCLONE_CMD=(
+        rclone move "$source_dir" "$dest_dir"
+        --buffer-size "$BUFFER_SIZE"
+        --transfers "$TRANSFERS"
+        --checkers "$CHECKERS"
+        --tpslimit "$TPSLIMIT"
+        -P --stats "$STATS"
+        --contimeout "$CONNECT_TIMEOUT"
+        --timeout "$IO_TIMEOUT"
+        --expect-continue-time "$EXPECT_CONTINUE"
+        --low-level-retries "$LOW_LEVEL_RETRIES"
+        --retries "$RETRIES"
+        --retries-sleep "$RETRIES_SLEEP"
+        --log-file="$LOG_FILE" --log-level=ERROR
+      )
+
+      # 执行 rclone（若有 timeout/gtimeout 则使用，看门狗防卡死）
+      if [ -n "$TIMEOUT_BIN" ]; then
+        "$TIMEOUT_BIN" -k "$KILL_AFTER" "$MAX_RCLONE_RUN" "${RCLONE_CMD[@]}"
+      else
+        "${RCLONE_CMD[@]}"
+      fi
+      rc=$?
+      if [ $rc -ne 0 ]; then
+        echo "rclone 发生错误 (退出码: $rc)，可能是网络抖动或网盘限速导致，稍后将重试..."
+      fi
 
       # 检查日志中是否有上传失败的文件
-      failed_files=$(grep "Failed to copy" "$LOG_FILE" | awk -F ' : ' '{print $2}' | awk -F': ' '{print $1}')
+      failed_files=$(grep -E "Failed to (copy|move)" "$LOG_FILE" | awk -F ' : ' '{print $2}' | awk -F': ' '{print $1}')
       if [ -n "$failed_files" ]; then
         echo "以下文件上传失败，将删除这些文件："
         echo "$failed_files"
