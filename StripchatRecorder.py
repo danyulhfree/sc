@@ -49,6 +49,17 @@ DEFAULT_HEADERS = {
     )
 }
 
+# Stripchat HLS 主播放列表模板（2025+）：见页面内嵌配置 hlsStreamUrlTemplate
+HLS_CDN_HOST_CANDIDATES = (
+    "doppiocdn.com",
+    "doppiocdn.media",
+    "doppiocdn.net",
+    "doppiocdn.org",
+    "doppiocdn.live",
+    "doppiocdn1.com",
+)
+HLS_MASTER_URL_TEMPLATE = "https://edge-hls.{cdn_host}/hls/{stream_name}/master/{stream_name}.m3u8"
+
 # postProcess 队列在 main 中按需创建
 processingQueue = None
 
@@ -652,6 +663,20 @@ class Modelo(threading.Thread):
         self.recording_start_time = None      # 新增：记录本次录制开始时间
         self.http = requests.Session()
         self.http.headers.update(DEFAULT_HEADERS)
+        self.stream_name = None
+        self._hls_cdn_host = None
+
+    def _iter_hls_master_urls(self, stream_name: str):
+        """生成可用的 HLS master.m3u8 URL（先用缓存 host，再轮询候选 host）。"""
+        seen = set()
+        if self._hls_cdn_host:
+            seen.add(self._hls_cdn_host)
+            yield HLS_MASTER_URL_TEMPLATE.format(cdn_host=self._hls_cdn_host, stream_name=stream_name)
+        for host in HLS_CDN_HOST_CANDIDATES:
+            if host in seen:
+                continue
+            seen.add(host)
+            yield HLS_MASTER_URL_TEMPLATE.format(cdn_host=host, stream_name=stream_name)
 
     def run(self):
         global recording, hilos
@@ -674,8 +699,38 @@ class Modelo(threading.Thread):
             self.create_new_file()
 
             session = streamlink.Streamlink()
-            streams = session.streams(f'hlsvariant://{hls_url}')
+            streams = None
+            last_streamlink_error = None
+            stream_name = self.stream_name
+            if not stream_name:
+                try:
+                    stream_name = str(hls_url).split("/hls/")[1].split("/")[0]
+                except Exception:
+                    stream_name = None
+
+            if not stream_name:
+                log_event(f'无法解析 streamName，跳过录制: {self.modelo} - {hls_url}')
+                self.online = False
+                return
+
+            for candidate_url in self._iter_hls_master_urls(stream_name):
+                try:
+                    candidate_streams = session.streams(f'hlsvariant://{candidate_url}')
+                    if candidate_streams:
+                        streams = candidate_streams
+                        # 记住本次可用的 cdn host
+                        try:
+                            self._hls_cdn_host = candidate_url.split("edge-hls.", 1)[1].split("/", 1)[0]
+                        except Exception:
+                            pass
+                        break
+                except streamlink.exceptions.PluginError as e:
+                    last_streamlink_error = e
+                    continue
+
             if not streams:
+                if last_streamlink_error:
+                    raise last_streamlink_error
                 log_event(f'Streamlink 未获取到流: {self.modelo}')
                 self.online = False
                 return
@@ -870,23 +925,27 @@ class Modelo(threading.Thread):
                 # 如果返回的是列表，说明可能是错误响应
                 log_event(f'API返回列表而不是预期的字典: {self.modelo}')
                 return False
-                
-            hls_url = ''
-            if 'cam' in data.keys():
-                if {'isCamAvailable', 'streamName'} <= data['cam'].keys():
-                    if data['cam']['isCamAvailable'] and data['cam']['streamName']:
-                        # 尝试获取 viewServers 中的 HLS 地址
-                        if 'viewServers' in data['cam'] and 'flashphoner-hls' in data['cam']['viewServers']:
-                           hls_url = f'https://{data["cam"]["viewServers"]["flashphoner-hls"]}/hls/{data["cam"]["streamName"]}/playlist.m3u8'
-                        elif 'hlsUrl' in data['cam']: # 备选方案: 直接使用 hlsUrl
-                           hls_url = data['cam']['hlsUrl']
-                        else: # 最后备选: 拼接旧格式 (可能已失效)
-                           hls_url = f'https://b-hls-13.doppiocdn.live/hls/{data["cam"]["streamName"]}/{data["cam"]["streamName"]}.m3u8'
 
-            if len(hls_url):
-                return hls_url # 暂时不检查有效性，直接返回
-            else:
+            if not isinstance(data, dict):
                 return False
+
+            cam = data.get('cam')
+            # 关键修复：离线/删除用户时 cam 可能是 []，避免对 list 调用 keys()
+            if not isinstance(cam, dict):
+                return False
+
+            stream_name = cam.get('streamName')
+            is_available = bool(cam.get('isCamAvailable'))
+            if not is_available or not stream_name:
+                return False
+
+            self.stream_name = str(stream_name)
+
+            # 新版 HLS master URL（edge-hls.* + /hls/{streamName}/master/{streamName}.m3u8）
+            # 直接返回一个默认可用的 host；如失败，run() 会自动轮询其它 host。
+            if not self._hls_cdn_host:
+                self._hls_cdn_host = "doppiocdn.live"
+            return HLS_MASTER_URL_TEMPLATE.format(cdn_host=self._hls_cdn_host, stream_name=self.stream_name)
         except requests.exceptions.RequestException as e: # 更具体的异常捕获
              log_event(f'网络请求错误 (isOnline): {self.modelo} - {e}')
              return False
