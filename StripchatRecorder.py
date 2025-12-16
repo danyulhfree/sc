@@ -8,6 +8,7 @@ import subprocess
 import queue
 import shlex
 import tempfile
+import socket
 import requests
 import streamlink
 import shutil
@@ -671,11 +672,21 @@ class Modelo(threading.Thread):
         seen = set()
         if self._hls_cdn_host:
             seen.add(self._hls_cdn_host)
-            yield HLS_MASTER_URL_TEMPLATE.format(cdn_host=self._hls_cdn_host, stream_name=stream_name)
+            edge_host = f"edge-hls.{self._hls_cdn_host}"
+            try:
+                socket.getaddrinfo(edge_host, 443)
+                yield HLS_MASTER_URL_TEMPLATE.format(cdn_host=self._hls_cdn_host, stream_name=stream_name)
+            except OSError:
+                pass
         for host in HLS_CDN_HOST_CANDIDATES:
             if host in seen:
                 continue
             seen.add(host)
+            edge_host = f"edge-hls.{host}"
+            try:
+                socket.getaddrinfo(edge_host, 443)
+            except OSError:
+                continue
             yield HLS_MASTER_URL_TEMPLATE.format(cdn_host=host, stream_name=stream_name)
 
     def run(self):
@@ -699,8 +710,7 @@ class Modelo(threading.Thread):
             self.create_new_file()
 
             session = streamlink.Streamlink()
-            streams = None
-            last_streamlink_error = None
+            last_error = None
             stream_name = self.stream_name
             if not stream_name:
                 try:
@@ -717,26 +727,30 @@ class Modelo(threading.Thread):
                 try:
                     candidate_streams = session.streams(f'hlsvariant://{candidate_url}')
                     if candidate_streams:
-                        streams = candidate_streams
-                        # 记住本次可用的 cdn host
+                        stream = candidate_streams.get('best') or next(iter(candidate_streams.values()))
+                        try:
+                            fd = stream.open()
+                        except Exception as e:
+                            last_error = e
+                            fd = None
+                            continue
+
+                        # 打开成功：记住本次可用的 cdn host
                         try:
                             self._hls_cdn_host = candidate_url.split("edge-hls.", 1)[1].split("/", 1)[0]
                         except Exception:
                             pass
                         break
-                except streamlink.exceptions.PluginError as e:
-                    last_streamlink_error = e
+                except Exception as e:
+                    last_error = e
                     continue
 
-            if not streams:
-                if last_streamlink_error:
-                    raise last_streamlink_error
+            if fd is None:
+                if last_error is not None:
+                    raise last_error
                 log_event(f'Streamlink 未获取到流: {self.modelo}')
                 self.online = False
                 return
-
-            stream = streams.get('best') or next(iter(streams.values()))
-            fd = stream.open()
 
             # 真正开始录制
             self.recording_start_time = time.time()
