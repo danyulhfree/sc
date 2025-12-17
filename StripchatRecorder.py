@@ -737,7 +737,7 @@ class Modelo(threading.Thread):
         return self._proxy or ''
 
     def _configure_streamlink_session(self, session: "streamlink.Streamlink", extra_headers: dict = None):
-        """配置 Streamlink 的 HTTP headers/proxy。"""
+        """配置 Streamlink 的 HTTP headers/proxy 以及 HLS 相关选项。"""
         # 继承 Streamlink 默认 headers，再叠加我们的 headers
         try:
             headers = dict(session.options.get('http-headers') or {})
@@ -750,6 +750,25 @@ class Modelo(threading.Thread):
             headers.update(extra_headers)
         try:
             session.set_option('http-headers', headers)
+        except Exception:
+            pass
+
+        # HLS 特定选项：增加 segment/stream 超时时间，避免过快断开
+        try:
+            session.set_option('hls-segment-timeout', 30.0)  # 单个 segment 下载超时
+        except Exception:
+            pass
+        try:
+            session.set_option('hls-timeout', 60.0)  # HLS playlist 刷新超时
+        except Exception:
+            pass
+        try:
+            session.set_option('stream-timeout', 120.0)  # 整体流超时
+        except Exception:
+            pass
+        # 启用实时流数据模式，帮助处理 HLS 分段缓冲
+        try:
+            session.set_option('hls-segment-stream-data', True)
         except Exception:
             pass
 
@@ -1048,7 +1067,19 @@ class Modelo(threading.Thread):
                     log_event(f'创建新录制片段: {self.file}')
 
                 # 读流（提高 chunk，显著降低CPU占用）
-                data = fd.read(STREAM_READ_SIZE)
+                # HLS 流可能暂时没有新数据（等待下一个 segment），尝试几次快速重读
+                data = None
+                for read_attempt in range(3):
+                    try:
+                        data = fd.read(STREAM_READ_SIZE)
+                    except Exception as e:
+                        # 读取异常可能是流断开，记录并退出读取循环
+                        log_event(f'读取流数据异常: {self.modelo} - {e}')
+                        break
+                    if data:
+                        break
+                    time.sleep(0.3)  # 短暂等待后重试
+
                 if not data:
                     # 没数据先等一会儿；超时则尝试重连，避免一直写空文件
                     if current_time - last_data_time >= NO_DATA_TIMEOUT_SECONDS:
