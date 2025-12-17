@@ -12,7 +12,11 @@ import socket
 import requests
 import streamlink
 import shutil
-from urllib.parse import urlparse
+import hashlib
+import base64
+import re
+from urllib.parse import urljoin
+from typing import Optional
 from flask import Flask, render_template, request, redirect, url_for
 
 if os.name == 'nt':
@@ -50,20 +54,103 @@ DEFAULT_HEADERS = {
     'User-Agent': (
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
         'AppleWebKit/537.36 (KHTML, like Gecko) '
-        'Chrome/91.0.4472.124 Safari/537.36'
-    )
+        'Chrome/120.0.0.0 Safari/537.36'
+    ),
+    'Accept': 'application/x-mpegURL,application/vnd.apple.mpegurl,application/json,text/xml,text/html,application/xhtml+xml,image/webp,text/plain,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Origin': 'https://stripchat.com',
+    'Referer': 'https://stripchat.com/',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'cross-site',
+    'Pragma': 'no-cache',
+    'Cache-Control': 'no-cache',
 }
 
-# Stripchat HLS 主播放列表模板（2025+）：见页面内嵌配置 hlsStreamUrlTemplate
-HLS_CDN_HOST_CANDIDATES = (
-    "doppiocdn.com",
-    "doppiocdn.media",
-    "doppiocdn.net",
-    "doppiocdn.org",
-    "doppiocdn.live",
-    "doppiocdn1.com",
-)
-HLS_MASTER_URL_TEMPLATE = "https://edge-hls.{cdn_host}/hls/{stream_name}/master/{stream_name}{suffix}.m3u8"
+# MOUFLON Static Keys - from GitHub issue discussion
+# https://github.com/lossless1024/StreaMonitor/issues/290
+MOUFLON_KEYS = {
+    "Zeechoej4aleeshi": "ubahjae7goPoodi6",
+}
+
+def mouflon_decode(encrypted_b64: str, key: str) -> str:
+    """Decode an encrypted segment URL using XOR with SHA256 of key."""
+    hash_bytes = hashlib.sha256(key.encode("utf-8")).digest()
+    hash_len = len(hash_bytes)
+    
+    # Try with and without padding
+    for padded in [encrypted_b64, encrypted_b64 + "=", encrypted_b64 + "=="]:
+        try:
+            encrypted_data = base64.b64decode(padded)
+            decrypted_bytes = bytearray()
+            for i, cipher_byte in enumerate(encrypted_data):
+                key_byte = hash_bytes[i % hash_len]
+                decrypted_byte = cipher_byte ^ key_byte
+                decrypted_bytes.append(decrypted_byte)
+            
+            plaintext = decrypted_bytes.decode("utf-8", errors='replace')
+            return plaintext
+        except Exception:
+            continue
+    return None
+
+def get_mouflon_pkeys(m3u8_content: str) -> list:
+    """Extract all psch/pkey pairs from m3u8 content."""
+    keys = []
+    for line in m3u8_content.splitlines():
+        if line.startswith('#EXT-X-MOUFLON:PSCH:'):
+            parts = line.split(':')
+            if len(parts) >= 4:
+                psch = parts[2]  # v1 or v2
+                pkey = parts[3].strip()
+                keys.append((psch, pkey))
+    return keys
+
+def get_mouflon_file_entries(m3u8_content: str) -> list:
+    """Extract all MOUFLON:FILE encrypted entries from m3u8 content."""
+    entries = []
+    for line in m3u8_content.splitlines():
+        if line.startswith('#EXT-X-MOUFLON:FILE:'):
+            encrypted = line.split(':', 2)[2].strip()
+            entries.append(encrypted)
+    return entries
+
+def pick_best_variant_url(master_m3u8: str, master_url: str) -> Optional[str]:
+    """Pick the highest quality variant from a master m3u8."""
+    best_url = None
+    best_score = (-1, -1, -1)  # (height, width, bandwidth)
+    lines = (master_m3u8 or "").splitlines()
+    i = 0
+    while i < len(lines):
+        line = (lines[i] or "").strip()
+        if line.startswith("#EXT-X-STREAM-INF:"):
+            attrs = line.split(":", 1)[1]
+            bw = 0
+            width = 0
+            height = 0
+
+            m = re.search(r"BANDWIDTH=(\d+)", attrs)
+            if m:
+                bw = int(m.group(1))
+
+            m = re.search(r"RESOLUTION=(\d+)x(\d+)", attrs)
+            if m:
+                width = int(m.group(1))
+                height = int(m.group(2))
+
+            j = i + 1
+            while j < len(lines) and (lines[j] or "").strip().startswith("#"):
+                j += 1
+            if j < len(lines):
+                candidate = (lines[j] or "").strip()
+                if candidate:
+                    score = (height, width, bw)
+                    if score > best_score:
+                        best_score = score
+                        best_url = candidate if candidate.startswith("http") else urljoin(master_url, candidate)
+                i = j
+        i += 1
+    return best_url
 
 # postProcess 队列在 main 中按需创建
 processingQueue = None
@@ -552,7 +639,6 @@ def readConfig():
         'proxy': proxy,
     }
     
-    # 读取分段录制时长设置
     try:
         segment_duration = int(Config.get('settings', 'segmentDuration', fallback='0'))
         if segment_duration > 0:
@@ -561,6 +647,8 @@ def readConfig():
                     app_state["segment_duration"] = segment_duration
     except ValueError:
         pass  # 值无效则忽略，沿用当前设置
+        
+    log_event(f'配置加载完毕.')
 
     os.makedirs(setting["save_directory"], exist_ok=True)
     
@@ -692,347 +780,201 @@ class Modelo(threading.Thread):
         self.recording_start_time = None      # 新增：记录本次录制开始时间
         self.http = requests.Session()
         self.http.headers.update(DEFAULT_HEADERS)
-        # HLS/CDN 侧通常会校验 Referer/Origin；提前写入到 session headers
-        self.http.headers.update({
-            'Referer': f'https://stripchat.com/{self.modelo}',
-            'Origin': 'https://stripchat.com',
-        })
-        self._proxy = get_effective_proxy()
-        if self._proxy:
-            # requests 会在不支持 socks/无依赖时抛异常；这里先设置，失败在请求时记录
-            self.http.proxies.update({'http': self._proxy, 'https': self._proxy})
-        self.stream_name = None
-        self._hls_cdn_host = None
-        self._hls_token_headers = None
-        self._hls_suffixes = ['']  # 优先尝试 source（空 suffix），失败再降级
 
-    def _iter_hls_master_urls(self, stream_name: str, suffix: str = ''):
-        """生成可用的 HLS master.m3u8 URL（先用缓存 host，再轮询候选 host）。"""
-        seen = set()
-        if self._hls_cdn_host:
-            seen.add(self._hls_cdn_host)
-            edge_host = f"edge-hls.{self._hls_cdn_host}"
-            try:
-                socket.getaddrinfo(edge_host, 443)
-                yield HLS_MASTER_URL_TEMPLATE.format(cdn_host=self._hls_cdn_host, stream_name=stream_name, suffix=suffix)
-            except OSError:
-                pass
-        for host in HLS_CDN_HOST_CANDIDATES:
-            if host in seen:
-                continue
-            seen.add(host)
-            edge_host = f"edge-hls.{host}"
-            try:
-                socket.getaddrinfo(edge_host, 443)
-            except OSError:
-                continue
-            yield HLS_MASTER_URL_TEMPLATE.format(cdn_host=host, stream_name=stream_name, suffix=suffix)
-
-    @staticmethod
-    def _is_advert_playlist(text: str) -> bool:
-        """判断是否为 CPA/广告 playlist（避免录到 480P 广告流）。"""
-        if not text:
-            return False
-        lower = text.lower()
-        return (
-            '#ext-x-mouflon-advert' in lower
-            or '/cpa/' in lower
-            or '#ext-x-playlist-type:vod' in lower
-        )
-
-    def _variant_playlist_accessible(self, variant_url: str, token_headers: dict = None) -> bool:
-        """检查 variant playlist 是否可用且非广告流。"""
-        if not variant_url:
-            return False
+    def run_mouflon(self, stream_name: str, psch: str, pkey: str, decrypt_key: str):
+        """MOUFLON-aware HLS recording using authenticated URLs and segment decryption."""
+        global recording, hilos
+        
+        log_event(f'[MOUFLON] 开始录制 {self.modelo} (streamName={stream_name}, pkey={pkey})')
+        
         try:
-            self._refresh_proxy()
-            r = self.http.get(variant_url, headers=(token_headers or {}), timeout=10)
-            if not (200 <= r.status_code < 400):
-                return False
-            # requests 默认跟随重定向；通过最终 URL / 内容识别广告流
-            if self._is_advert_playlist(r.text or ''):
-                return False
-            if 'cpa/' in (r.url or '').lower():
-                return False
-            return True
-        except Exception:
-            return False
-
-    def _refresh_proxy(self) -> str:
-        """运行时刷新代理（支持不重启修改 config/env）。"""
-        proxy = get_effective_proxy()
-        if proxy != (self._proxy or ''):
-            self._proxy = proxy
+            # Create output directory and file
+            os.makedirs(os.path.join(setting['save_directory'], self.modelo), exist_ok=True)
+            self.create_new_file()
+            
+            with state_lock:
+                if self not in recording:
+                    recording.append(self)
+                hilos[:] = [t for t in hilos if t.modelo != self.modelo]
+            
+            self.online = True
+            self.recording_start_time = time.time()
+            self.segment_start_time = self.recording_start_time
+            
+            # Get variant playlist URL (prefer highest quality)
+            master_url = f'https://edge-hls.doppiocdn.com/hls/{stream_name}/master/{stream_name}_auto.m3u8'
+            master_resp = self.http.get(master_url, timeout=15)
+            
+            if master_resp.status_code != 200:
+                log_event(f'[MOUFLON] 获取主播放列表失败: {self.modelo} (status={master_resp.status_code})')
+                return
+            
+            # Prefer highest quality variant
+            variant_url = pick_best_variant_url(master_resp.text, master_url)
+            if not variant_url:
+                # Fallback: pick first absolute URL if parsing fails
+                variant_urls = re.findall(r'(https://media-hls[^\s]+\.m3u8)', master_resp.text)
+                variant_url = variant_urls[0] if variant_urls else None
+            
+            if not variant_url:
+                log_event(f'[MOUFLON] 未找到变体播放列表: {self.modelo}')
+                return
+            
+            # Add authentication params
+            auth_variant_url = f"{variant_url}?psch={psch}&pkey={pkey}&playlistType=lowLatency"
+            
+            print(f"[开始录制] 开始 MOUFLON 录制模特 {self.modelo} 到文件 {os.path.basename(self.file)}")
+            log_event(f'开始 MOUFLON 录制: {self.modelo} -> {self.file}')
+            
+            seen_segments = set()
+            current_file = open(self.file, 'wb', buffering=1024 * 1024)
+            last_online_check = time.time()
+            
             try:
-                if proxy:
-                    self.http.proxies.update({'http': proxy, 'https': proxy})
-                else:
-                    self.http.proxies.clear()
+                segment_duration_seconds = int(app_state.get("segment_duration", 30)) * 60
             except Exception:
-                pass
-        return self._proxy or ''
-
-    def _configure_streamlink_session(self, session: "streamlink.Streamlink", extra_headers: dict = None):
-        """配置 Streamlink 的 HTTP headers/proxy 以及 HLS 相关选项。"""
-        # 继承 Streamlink 默认 headers，再叠加我们的 headers
-        try:
-            headers = dict(session.options.get('http-headers') or {})
-        except Exception:
-            headers = {}
-        headers.update(DEFAULT_HEADERS)
-        headers.setdefault('Referer', f'https://stripchat.com/{self.modelo}')
-        headers.setdefault('Origin', 'https://stripchat.com')
-        if extra_headers:
-            headers.update(extra_headers)
-        try:
-            session.set_option('http-headers', headers)
-        except Exception:
-            pass
-
-        # HLS 特定选项：增加 segment/stream 超时时间，避免过快断开
-        # streamlink 5.4.0 对应的是 stream-segment-timeout/stream-timeout
-        try:
-            session.set_option('stream-segment-timeout', 30.0)  # 单个 segment 连接+读取超时
-        except Exception:
-            pass
-        try:
-            session.set_option('stream-timeout', 120.0)  # 整体流超时
-        except Exception:
-            pass
-        # 启用实时流数据模式，帮助处理 HLS 分段缓冲
-        try:
-            session.set_option('hls-segment-stream-data', True)
-        except Exception:
-            pass
-
-        proxy = self._refresh_proxy()
-        if proxy:
-            try:
-                session.set_option('http-proxy', proxy)
-            except Exception:
-                pass
-
-    def _fetch_hls_master_info(self, master_url: str):
-        """获取 master.m3u8 内容并解析变体 URL + Mouflon tokens。"""
-        try:
-            self._refresh_proxy()
-            resp = self.http.get(master_url, timeout=10)
-            resp.raise_for_status()
-            text = resp.text or ''
-        except Exception as e:
-            log_event(f'HLS master 获取失败: {self.modelo} - {type(e).__name__}: {e}')
-            return None
-
-        tokens = []
-        variants = []
-        prev = None
-        for raw in text.splitlines():
-            line = (raw or '').strip()
-            if not line:
-                continue
-
-            if line.startswith('#EXT-X-MOUFLON:'):
-                payload = line.split(':', 1)[1].strip()
-                parts = [p for p in payload.split(':') if p != '']
-                if len(parts) >= 2:
-                    header_name = parts[0].strip()
-                    header_value = ':'.join(parts[1:]).strip()
-                    if header_name and header_value:
-                        tokens.append((header_name, header_value))
-
-            if prev and prev.startswith('#EXT-X-STREAM-INF') and not line.startswith('#'):
-                variants.append(line)
-
-            prev = line
-
-        return {
-            'text': text,
-            'tokens': tokens,
-            'variants': variants,
-        }
-
-    @staticmethod
-    def _build_hls_token_header_candidates(tokens):
-        """将 Mouflon tokens 转换为可尝试的 header dict 列表（PSCH 多值轮询）。"""
-        if not tokens:
-            return []
-
-        grouped = {}
-        for name, value in tokens:
-            if not name or not value:
-                continue
-            grouped.setdefault(name, []).append(value)
-
-        if not grouped:
-            return []
-
-        psch_key = None
-        for k in grouped.keys():
-            if str(k).upper() == 'PSCH':
-                psch_key = k
-                break
-
-        base = {k: v[0] for k, v in grouped.items() if k != psch_key and v}
-
-        candidates = []
-        if psch_key and grouped.get(psch_key):
-            for v in grouped[psch_key]:
-                h = dict(base)
-                h[psch_key] = v
-                candidates.append(h)
-        else:
-            candidates.append(base)
-
-        # 去重
-        unique = []
-        seen = set()
-        for h in candidates:
-            key = tuple(sorted((str(k), str(v)) for k, v in h.items()))
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(h)
-        return unique
-
-    def _select_hls_token_headers(self, variant_url: str, candidates):
-        """选择可用的 token headers（优先能访问 variant playlist 的组合）。"""
-        if not candidates:
-            return None
-
-        if not variant_url:
-            return candidates[0]
-
-        last_status = None
-        last_error = None
-        for h in candidates:
-            try:
-                self._refresh_proxy()
-                r = self.http.get(variant_url, headers=h, timeout=10)
-                last_status = r.status_code
-                if 200 <= r.status_code < 400 and not self._is_advert_playlist(r.text or '') and 'cpa/' not in (r.url or '').lower():
-                    return h
-            except Exception as e:
-                last_error = e
-                continue
-
-        if last_status:
-            log_event(
-                f'HLS 下游 playlist 不可访问: {self.modelo} - {variant_url} (HTTP {last_status})，'
-                f'可能需要代理/解锁'
-            )
-        elif last_error:
-            log_event(f'HLS 下游 playlist 请求失败: {self.modelo} - {variant_url} ({last_error})')
-
-        return candidates[0]
-
-    def _wait_for_first_data(self, fd, timeout_seconds: int):
-        """等待 fd 输出第一段数据（避免长时间写空文件）。"""
-        if fd is None:
-            return b''
-        end = time.time() + max(1, int(timeout_seconds or 0))
-        while time.time() < end and not self._stopevent.is_set():
-            try:
-                data = fd.read(STREAM_READ_SIZE)
-            except Exception:
-                return b''
-            if data:
-                return data
-            time.sleep(0.5)
-        return b''
-
-    def _open_streamlink_fd(self, stream_name: str):
-        """打开 HLS 流，返回 (streamlink_session, fd, first_data, master_url)。"""
-        last_error = None
-
-        suffixes = self._hls_suffixes or ['']
-
-        for suffix in suffixes:
-            if self._stopevent.is_set():
-                return None, None, b'', None
-
-            for candidate_url in self._iter_hls_master_urls(stream_name, suffix=suffix):
-                if self._stopevent.is_set():
-                    return None, None, b'', None
-
-                # 解析 master.m3u8，提取 Mouflon tokens（如 PSCH）用于下游 playlist/segments
-                info = self._fetch_hls_master_info(candidate_url)
-                token_headers = None
-                variant_url = None
-                if info:
-                    tokens = info.get('tokens') or []
-                    variants = info.get('variants') or []
-                    variant_url = variants[0] if variants else None
-                    candidates = self._build_hls_token_header_candidates(tokens)
-                    token_headers = self._select_hls_token_headers(variant_url, candidates) if candidates else None
-
-                # 缓存 token headers，便于重连复用
-                if token_headers:
-                    self._hls_token_headers = token_headers
-                elif self._hls_token_headers:
-                    token_headers = self._hls_token_headers
-
-                # 预检查：避免被 302/200 的 CPA 广告流骗到（常见表现为 480P 且只有十几秒）
-                if variant_url and not self._variant_playlist_accessible(variant_url, token_headers=token_headers):
-                    last_error = RuntimeError(f'variant playlist not accessible or advert (variant={variant_url})')
-                    continue
-
-                session = streamlink.Streamlink()
-                self._configure_streamlink_session(session, extra_headers=token_headers)
-
+                segment_duration_seconds = 30 * 60
+            
+            init_downloaded = False
+            
+            while not self._stopevent.is_set():
+                current_time = time.time()
+                
+                # Period online check
+                if current_time - last_online_check >= ONLINE_CHECK_INTERVAL_SECONDS:
+                    if not self.isOnline():
+                        log_event(f'模特已下线，停止录制: {self.modelo}')
+                        break
+                    last_online_check = current_time
+                
+                # File segmentation
+                if segment_duration_seconds and (current_time - self.segment_start_time >= segment_duration_seconds):
+                    current_file.close()
+                    completed_file = self.file
+                    self._handle_completed_file(completed_file, use_postprocess=False, label='分段')
+                    
+                    self.segment_start_time = current_time
+                    self.create_new_file()
+                    current_file = open(self.file, 'wb', buffering=1024 * 1024)
+                    init_downloaded = False  # Need to re-download init for new file
+                    log_event(f'[分段] 创建新文件: {self.file}')
+                
+                # Fetch variant playlist
                 try:
-                    streams = session.streams(f'hlsvariant://{candidate_url}')
-                    if not streams:
+                    resp = self.http.get(auth_variant_url, timeout=10)
+                    if resp.status_code != 200:
+                        log_event(f'[MOUFLON] 获取变体播放列表失败: {resp.status_code}')
+                        time.sleep(2)
                         continue
-                    # 明确选择最高分辨率：解析 quality keys (如 '1080p', '720p', '480p') 按数值排序
-                    def parse_resolution(quality_key: str) -> int:
-                        """解析分辨率数值，如 '1080p' -> 1080, 'best' -> 999999"""
-                        if quality_key == 'best':
-                            return 999999
-                        if quality_key == 'source':
-                            return 999998
-                        if quality_key == 'worst':
-                            return 0
-                        try:
-                            # 尝试提取数字部分 (如 '720p' -> 720, '1080p60' -> 1080)
-                            import re
-                            match = re.search(r'(\d+)', quality_key)
-                            if match:
-                                return int(match.group(1))
-                        except Exception:
-                            pass
-                        return 0
-
-                    # 按分辨率降序排序，选择最高的
-                    sorted_streams = sorted(streams.items(), key=lambda x: parse_resolution(x[0]), reverse=True)
-                    selected_quality = sorted_streams[0][0] if sorted_streams else 'unknown'
-                    available_qualities = [k for k, v in sorted_streams]
-                    stream = sorted_streams[0][1] if sorted_streams else next(iter(streams.values()))
-                    log_event(f'选择分辨率: {self.modelo} - {selected_quality} (可用: {", ".join(available_qualities[:5])})')
-                    fd = stream.open()
                 except Exception as e:
-                    last_error = e
+                    log_event(f'[MOUFLON] 请求失败: {e}')
+                    time.sleep(2)
                     continue
-
-                first_data = self._wait_for_first_data(fd, FIRST_DATA_TIMEOUT_SECONDS)
-                if not first_data:
+                
+                playlist_content = resp.text
+                
+                # Download init segment if not yet done
+                if not init_downloaded:
+                    init_match = re.search(r'#EXT-X-MAP:URI="([^"]+)"', playlist_content)
+                    if init_match:
+                        init_url = init_match.group(1)
+                        try:
+                            init_resp = self.http.get(init_url, timeout=15)
+                            if init_resp.status_code == 200:
+                                current_file.write(init_resp.content)
+                                init_downloaded = True
+                                log_event(f'[MOUFLON] 下载 init 段成功: {len(init_resp.content)} bytes')
+                        except Exception as e:
+                            log_event(f'[MOUFLON] 下载 init 段失败: {e}')
+                
+                # Extract and decrypt MOUFLON:FILE entries
+                mouflon_files = get_mouflon_file_entries(playlist_content)
+                
+                for encrypted in mouflon_files:
+                    if encrypted in seen_segments:
+                        continue
+                    
+                    # Decrypt to get real segment filename
+                    decrypted_filename = mouflon_decode(encrypted, decrypt_key)
+                    if not decrypted_filename or '\ufffd' in decrypted_filename:
+                        continue  # Decryption failed
+                    
+                    # Construct full segment URL
+                    base_url = variant_url.rsplit('/', 1)[0]
+                    segment_url = f"{base_url}/{decrypted_filename}"
+                    
                     try:
-                        fd.close()
-                    except Exception:
-                        pass
-                    last_error = RuntimeError(f'no data from stream (master={candidate_url}, variant={variant_url})')
-                    continue
+                        seg_resp = self.http.get(segment_url, timeout=15)
+                        if seg_resp.status_code == 200:
+                            current_file.write(seg_resp.content)
+                            seen_segments.add(encrypted)
+                        else:
+                            log_event(f'[MOUFLON] 分段下载失败: {seg_resp.status_code} - {decrypted_filename[:50]}')
+                    except Exception as e:
+                        log_event(f'[MOUFLON] 分段请求异常: {e}')
+                
+                # Short sleep before next playlist refresh
+                time.sleep(0.5)
+            
+            # Cleanup
+            current_file.close()
+            self._handle_completed_file(self.file, use_postprocess=True)
+            
+        except Exception as e:
+            log_event(f'[MOUFLON] 录制异常: {self.modelo} - {e}')
+        finally:
+            with state_lock:
+                if self in recording:
+                    recording.remove(self)
+            self.online = False
 
-                # 打开成功：记住本次可用的 cdn host
-                try:
-                    self._hls_cdn_host = candidate_url.split("edge-hls.", 1)[1].split("/", 1)[0]
-                except Exception:
-                    pass
-
-                return session, fd, first_data, candidate_url
-
-        if last_error is not None:
-            log_event(f'打开流失败: {self.modelo} - {type(last_error).__name__}: {last_error}')
-        return None, None, b'', None
+    def _try_mouflon_recording(self):
+        """
+        Try to use MOUFLON-based recording if static keys are available.
+        Returns True if MOUFLON recording was attempted (success or fail).
+        Returns None if MOUFLON is not available (fallback to Streamlink).
+        """
+        try:
+            # Get stream info from API
+            url = f'https://stripchat.com/api/front/v2/models/username/{self.modelo}/cam'
+            resp = self.http.get(url, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            
+            if not isinstance(data, dict) or 'cam' not in data:
+                return None  # Fallback to Streamlink
+            
+            cam = data['cam']
+            if not cam.get('isCamAvailable') or not cam.get('streamName'):
+                return None  # Not online, fallback
+            
+            stream_name = cam['streamName']
+            
+            # Get master m3u8 to find available pkeys
+            master_url = f'https://edge-hls.doppiocdn.com/hls/{stream_name}/master/{stream_name}_auto.m3u8'
+            master_resp = self.http.get(master_url, timeout=10)
+            
+            if master_resp.status_code != 200:
+                log_event(f'[MOUFLON] 无法获取主播放列表，回退到 Streamlink: {self.modelo}')
+                return None  # Fallback
+            
+            pkey_pairs = get_mouflon_pkeys(master_resp.text)
+            
+            # Find a pkey that we have a static key for
+            for psch, pkey in pkey_pairs:
+                if pkey in MOUFLON_KEYS:
+                    decrypt_key = MOUFLON_KEYS[pkey]
+                    log_event(f'[MOUFLON] 找到匹配的静态密钥: pkey={pkey}')
+                    self.run_mouflon(stream_name, psch, pkey, decrypt_key)
+                    return True  # MOUFLON recording was attempted
+            
+            # No matching keys found
+            log_event(f'[MOUFLON] 没有找到匹配的静态密钥，回退到 Streamlink: {self.modelo}')
+            return None  # Fallback
+            
+        except Exception as e:
+            log_event(f'[MOUFLON] 检测失败，回退到 Streamlink: {self.modelo} - {e}')
+            return None  # Fallback
 
     def run(self):
         global recording, hilos
@@ -1042,6 +984,12 @@ class Modelo(threading.Thread):
         current_file = None
 
         try:
+            # First, try to use MOUFLON recording if keys are available
+            mouflon_result = self._try_mouflon_recording()
+            if mouflon_result is not None:
+                return  # MOUFLON recording handled (success or fail), don't continue
+            
+            # Fall back to Streamlink-based recording
             hls_url = self.isOnline()
             if not hls_url:
                 self.online = False
@@ -1052,15 +1000,33 @@ class Modelo(threading.Thread):
             # 确保目录存在
             os.makedirs(os.path.join(setting['save_directory'], self.modelo), exist_ok=True)
 
-            stream_name = self.stream_name
-            if not stream_name:
-                try:
-                    stream_name = str(hls_url).split("/hls/")[1].split("/")[0]
-                except Exception:
-                    stream_name = None
+            # 录制开始前创建初始文件路径
+            self.create_new_file()
 
-            if not stream_name:
-                log_event(f'无法解析 streamName，跳过录制: {self.modelo} - {hls_url}')
+            session = streamlink.Streamlink()
+            
+            # 构造 Streamlink Headers
+            sl_headers = DEFAULT_HEADERS.copy()
+            session.set_option("http-headers", sl_headers)
+            
+            # 传递 Cookies (Standard Jar)
+            if self.http.cookies:
+                session.set_option("http-cookies", self.http.cookies.get_dict())
+
+            if 'stripchat.com' in hls_url: # 是 Profile URL
+                log_event(f'使用 Streamlink 插件处理 Profile URL: {hls_url}')
+                try:
+                    streams = session.streams(hls_url)
+                except Exception as e:
+                    log_event(f'Streamlink 获取流异常: {self.modelo} - {e}')
+                    # import traceback
+                    # log_event(traceback.format_exc())
+                    streams = None
+            else: # 是 HLS URL
+                streams = session.streams(f'hlsvariant://{hls_url}')
+                
+            if not streams:
+                log_event(f'Streamlink 未获取到流: {self.modelo}')
                 self.online = False
                 return
 
@@ -1316,13 +1282,47 @@ class Modelo(threading.Thread):
                 # 如果返回的是列表，说明可能是错误响应
                 log_event(f'API返回列表而不是预期的字典: {self.modelo}')
                 return False
+                
+            hls_url = ''
+            if 'cam' in data.keys():
+                if {'isCamAvailable', 'streamName'} <= data['cam'].keys():
+                    if data['cam']['isCamAvailable'] and data['cam']['streamName']:
+                        # 尝试获取 viewServers 中的 HLS 地址
+                        if 'viewServers' in data['cam'] and 'flashphoner-hls' in data['cam']['viewServers']:
+                           hls_url = f'https://{data["cam"]["viewServers"]["flashphoner-hls"]}/hls/{data["cam"]["streamName"]}/playlist.m3u8'
+                        elif 'hlsUrl' in data['cam']: # 备选方案: 直接使用 hlsUrl
+                           hls_url = data['cam']['hlsUrl']
+                        else: 
+                           # 新备选: edge-hls / master playlist (verified 2024-12)
+                           hls_url = f'https://edge-hls.doppiocdn.live/hls/{data["cam"]["streamName"]}/master/{data["cam"]["streamName"]}_auto.m3u8'
+                           
+                           # 如果没有 viewServers 和 hlsUrl，说明是 WebRTC 或受保护流。
+                           # 返回 Profile URL 让 Streamlink 插件尝试处理 (需配合正确 Headers)
+                           if not hls_url: # Should not happen if we use edge-hls fallback
+                               log_event(f'无 HLS 地址，尝试使用 Profile URL: {self.modelo}')
+                               return f'https://stripchat.com/{self.modelo}'
 
-            if not isinstance(data, dict):
-                return False
-
-            cam = data.get('cam')
-            # 关键修复：离线/删除用户时 cam 可能是 []，避免对 list 调用 keys()
-            if not isinstance(cam, dict):
+            if len(hls_url):
+                # 验证URL是否有效 (带 Cookies)
+                try:
+                    # 使用 Session (含 Cookies) 发送 HEAD 请求
+                    with self.http.head(hls_url, timeout=5, allow_redirects=True) as r:
+                         if r.status_code >= 400:
+                             log_event(f'HLS URL无效 (Status {r.status_code}): {self.modelo} - {hls_url}')
+                             # 如果无效，以前是回退到 Profile URL，但现在 Profile URL 也不行 (NoPlugin)
+                             # 只有当 Streamlink 有 stripchat 插件时才回退到 Profile。
+                             # 现在我们相信 cookies 能解决 403，所以这里的 403 可能是 cookies 失效。
+                             # 但如果用户提供了 cookies，我们应该尝试用 cookies 去录制 HLS。
+                             # 可是如果 HEAD 都 403，streamlink 可能也会 403。
+                             # 无论如何，返回 HLS URL 让 Streamlink 试一把（它也会带 cookies）。
+                             pass # 忽略 403，让 run() 里的 streamlink 带 cookie 再试一次
+                             
+                except Exception as e:
+                    log_event(f'验证HLS URL失败: {self.modelo} - {e}')
+                    # 网络错误可能导致误判，保守返回 URL
+                
+                return hls_url
+            else:
                 return False
 
             stream_name = cam.get('streamName')
