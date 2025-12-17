@@ -17,3 +17,10 @@ python3.5 -m pip install streamlink bs4 lxml gevent
 Edit the config file (config.conf) to point to the directory you want to record to, where your "wanted" file is located, which genders, and the interval between checks (in seconds)
 
 Add models to the "wanted.txt" file (only one model per line). The model should match the models name in their chatrooms URL (https://stripchat.com/{modelname}/). T clarify this, it should only be the "modelname" portion, not the entire url.
+
+## Proxy (optional)
+
+If your server/network gets `403` / DNS errors when opening HLS URLs, set an outbound proxy:
+
+- `config.conf` → `[settings]` → `proxy = http://127.0.0.1:3247`
+- or environment variable: `SC_PROXY=http://127.0.0.1:3247`

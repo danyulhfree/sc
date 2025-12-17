@@ -12,6 +12,7 @@ import socket
 import requests
 import streamlink
 import shutil
+from urllib.parse import urlparse
 from flask import Flask, render_template, request, redirect, url_for
 
 if os.name == 'nt':
@@ -40,6 +41,9 @@ STREAM_READ_SIZE = 64 * 1024  # 单次读取字节数，过小会导致高CPU
 MIN_FILE_SIZE_BYTES = 1024
 ONLINE_CHECK_INTERVAL_SECONDS = 30
 FILE_LINK_CHECK_INTERVAL_SECONDS = 5
+FIRST_DATA_TIMEOUT_SECONDS = 20
+NO_DATA_TIMEOUT_SECONDS = 45
+MAX_NO_DATA_RESTARTS = 3
 
 # requests 默认头，减少被拦截概率
 DEFAULT_HEADERS = {
@@ -63,6 +67,28 @@ HLS_MASTER_URL_TEMPLATE = "https://edge-hls.{cdn_host}/hls/{stream_name}/master/
 
 # postProcess 队列在 main 中按需创建
 processingQueue = None
+
+def get_effective_proxy() -> str:
+    """获取代理设置：优先 SC_PROXY，其次 config.conf 的 settings.proxy，最后跟随 HTTP(S)_PROXY。"""
+    proxy = (os.environ.get('SC_PROXY') or os.environ.get('sc_proxy') or '').strip()
+    if not proxy:
+        proxy = str(setting.get('proxy') or '').strip()
+    if not proxy:
+        proxy = (
+            os.environ.get('HTTPS_PROXY')
+            or os.environ.get('https_proxy')
+            or os.environ.get('HTTP_PROXY')
+            or os.environ.get('http_proxy')
+            or ''
+        ).strip()
+    if not proxy:
+        return ''
+
+    parsed = urlparse(proxy)
+    if not parsed.scheme:
+        # 允许直接写 host:port
+        proxy = f'http://{proxy}'
+    return proxy
 
 def _now_str():
     return datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -499,6 +525,7 @@ def readConfig():
 
     save_directory = normalize_path(Config.get('paths', 'save_directory', fallback='./captures'))
     wishlist = normalize_path(Config.get('paths', 'wishlist', fallback='./wanted.txt'))
+    proxy = (Config.get('settings', 'proxy', fallback='') or '').strip()
 
     try:
         interval = int(Config.get('settings', 'checkInterval', fallback='20'))
@@ -522,6 +549,7 @@ def readConfig():
         'interval': interval,
         'postProcessingCommand': post_cmd,
         'postProcessingThreads': post_threads,
+        'proxy': proxy,
     }
     
     # 读取分段录制时长设置
@@ -664,8 +692,13 @@ class Modelo(threading.Thread):
         self.recording_start_time = None      # 新增：记录本次录制开始时间
         self.http = requests.Session()
         self.http.headers.update(DEFAULT_HEADERS)
+        self._proxy = get_effective_proxy()
+        if self._proxy:
+            # requests 会在不支持 socks/无依赖时抛异常；这里先设置，失败在请求时记录
+            self.http.proxies.update({'http': self._proxy, 'https': self._proxy})
         self.stream_name = None
         self._hls_cdn_host = None
+        self._hls_token_headers = None
 
     def _iter_hls_master_urls(self, stream_name: str):
         """生成可用的 HLS master.m3u8 URL（先用缓存 host，再轮询候选 host）。"""
@@ -689,10 +722,236 @@ class Modelo(threading.Thread):
                 continue
             yield HLS_MASTER_URL_TEMPLATE.format(cdn_host=host, stream_name=stream_name)
 
+    def _refresh_proxy(self) -> str:
+        """运行时刷新代理（支持不重启修改 config/env）。"""
+        proxy = get_effective_proxy()
+        if proxy != (self._proxy or ''):
+            self._proxy = proxy
+            try:
+                if proxy:
+                    self.http.proxies.update({'http': proxy, 'https': proxy})
+                else:
+                    self.http.proxies.clear()
+            except Exception:
+                pass
+        return self._proxy or ''
+
+    def _configure_streamlink_session(self, session: "streamlink.Streamlink", extra_headers: dict = None):
+        """配置 Streamlink 的 HTTP headers/proxy。"""
+        # 继承 Streamlink 默认 headers，再叠加我们的 headers
+        try:
+            headers = dict(session.options.get('http-headers') or {})
+        except Exception:
+            headers = {}
+        headers.update(DEFAULT_HEADERS)
+        headers.setdefault('Referer', f'https://stripchat.com/{self.modelo}')
+        headers.setdefault('Origin', 'https://stripchat.com')
+        if extra_headers:
+            headers.update(extra_headers)
+        try:
+            session.set_option('http-headers', headers)
+        except Exception:
+            pass
+
+        proxy = self._refresh_proxy()
+        if proxy:
+            try:
+                session.set_option('http-proxy', proxy)
+            except Exception:
+                pass
+
+    def _fetch_hls_master_info(self, master_url: str):
+        """获取 master.m3u8 内容并解析变体 URL + Mouflon tokens。"""
+        try:
+            self._refresh_proxy()
+            resp = self.http.get(master_url, timeout=10)
+            resp.raise_for_status()
+            text = resp.text or ''
+        except Exception as e:
+            log_event(f'HLS master 获取失败: {self.modelo} - {type(e).__name__}: {e}')
+            return None
+
+        tokens = []
+        variants = []
+        prev = None
+        for raw in text.splitlines():
+            line = (raw or '').strip()
+            if not line:
+                continue
+
+            if line.startswith('#EXT-X-MOUFLON:'):
+                payload = line.split(':', 1)[1].strip()
+                parts = [p for p in payload.split(':') if p != '']
+                if len(parts) >= 2:
+                    header_name = parts[0].strip()
+                    header_value = ':'.join(parts[1:]).strip()
+                    if header_name and header_value:
+                        tokens.append((header_name, header_value))
+
+            if prev and prev.startswith('#EXT-X-STREAM-INF') and not line.startswith('#'):
+                variants.append(line)
+
+            prev = line
+
+        return {
+            'text': text,
+            'tokens': tokens,
+            'variants': variants,
+        }
+
+    @staticmethod
+    def _build_hls_token_header_candidates(tokens):
+        """将 Mouflon tokens 转换为可尝试的 header dict 列表（PSCH 多值轮询）。"""
+        if not tokens:
+            return []
+
+        grouped = {}
+        for name, value in tokens:
+            if not name or not value:
+                continue
+            grouped.setdefault(name, []).append(value)
+
+        if not grouped:
+            return []
+
+        psch_key = None
+        for k in grouped.keys():
+            if str(k).upper() == 'PSCH':
+                psch_key = k
+                break
+
+        base = {k: v[0] for k, v in grouped.items() if k != psch_key and v}
+
+        candidates = []
+        if psch_key and grouped.get(psch_key):
+            for v in grouped[psch_key]:
+                h = dict(base)
+                h[psch_key] = v
+                candidates.append(h)
+        else:
+            candidates.append(base)
+
+        # 去重
+        unique = []
+        seen = set()
+        for h in candidates:
+            key = tuple(sorted((str(k), str(v)) for k, v in h.items()))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(h)
+        return unique
+
+    def _select_hls_token_headers(self, variant_url: str, candidates):
+        """选择可用的 token headers（优先能访问 variant playlist 的组合）。"""
+        if not candidates:
+            return None
+
+        if not variant_url:
+            return candidates[0]
+
+        last_status = None
+        last_error = None
+        for h in candidates:
+            try:
+                self._refresh_proxy()
+                r = self.http.get(variant_url, headers=h, timeout=10)
+                last_status = r.status_code
+                if 200 <= r.status_code < 400:
+                    return h
+            except Exception as e:
+                last_error = e
+                continue
+
+        if last_status:
+            log_event(
+                f'HLS 下游 playlist 不可访问: {self.modelo} - {variant_url} (HTTP {last_status})，'
+                f'可能需要代理/解锁'
+            )
+        elif last_error:
+            log_event(f'HLS 下游 playlist 请求失败: {self.modelo} - {variant_url} ({last_error})')
+
+        return candidates[0]
+
+    def _wait_for_first_data(self, fd, timeout_seconds: int):
+        """等待 fd 输出第一段数据（避免长时间写空文件）。"""
+        if fd is None:
+            return b''
+        end = time.time() + max(1, int(timeout_seconds or 0))
+        while time.time() < end and not self._stopevent.is_set():
+            try:
+                data = fd.read(STREAM_READ_SIZE)
+            except Exception:
+                return b''
+            if data:
+                return data
+            time.sleep(0.5)
+        return b''
+
+    def _open_streamlink_fd(self, stream_name: str):
+        """打开 HLS 流，返回 (streamlink_session, fd, first_data, master_url)。"""
+        last_error = None
+
+        for candidate_url in self._iter_hls_master_urls(stream_name):
+            if self._stopevent.is_set():
+                return None, None, b'', None
+
+            # 解析 master.m3u8，提取 Mouflon tokens（如 PSCH）用于下游 playlist/segments
+            info = self._fetch_hls_master_info(candidate_url)
+            token_headers = None
+            variant_url = None
+            if info:
+                tokens = info.get('tokens') or []
+                variants = info.get('variants') or []
+                variant_url = variants[0] if variants else None
+                candidates = self._build_hls_token_header_candidates(tokens)
+                token_headers = self._select_hls_token_headers(variant_url, candidates) if candidates else None
+
+            # 缓存 token headers，便于重连复用
+            if token_headers:
+                self._hls_token_headers = token_headers
+            elif self._hls_token_headers:
+                token_headers = self._hls_token_headers
+
+            session = streamlink.Streamlink()
+            self._configure_streamlink_session(session, extra_headers=token_headers)
+
+            try:
+                streams = session.streams(f'hlsvariant://{candidate_url}')
+                if not streams:
+                    continue
+                stream = streams.get('best') or next(iter(streams.values()))
+                fd = stream.open()
+            except Exception as e:
+                last_error = e
+                continue
+
+            first_data = self._wait_for_first_data(fd, FIRST_DATA_TIMEOUT_SECONDS)
+            if not first_data:
+                try:
+                    fd.close()
+                except Exception:
+                    pass
+                last_error = RuntimeError(f'no data from stream (master={candidate_url}, variant={variant_url})')
+                continue
+
+            # 打开成功：记住本次可用的 cdn host
+            try:
+                self._hls_cdn_host = candidate_url.split("edge-hls.", 1)[1].split("/", 1)[0]
+            except Exception:
+                pass
+
+            return session, fd, first_data, candidate_url
+
+        if last_error is not None:
+            log_event(f'打开流失败: {self.modelo} - {type(last_error).__name__}: {last_error}')
+        return None, None, b'', None
+
     def run(self):
         global recording, hilos
         started_recording = False
         fd = None
+        sl_session = None
         current_file = None
 
         try:
@@ -706,11 +965,6 @@ class Modelo(threading.Thread):
             # 确保目录存在
             os.makedirs(os.path.join(setting['save_directory'], self.modelo), exist_ok=True)
 
-            # 录制开始前创建初始文件路径
-            self.create_new_file()
-
-            session = streamlink.Streamlink()
-            last_error = None
             stream_name = self.stream_name
             if not stream_name:
                 try:
@@ -723,53 +977,34 @@ class Modelo(threading.Thread):
                 self.online = False
                 return
 
-            for candidate_url in self._iter_hls_master_urls(stream_name):
-                try:
-                    candidate_streams = session.streams(f'hlsvariant://{candidate_url}')
-                    if candidate_streams:
-                        stream = candidate_streams.get('best') or next(iter(candidate_streams.values()))
-                        try:
-                            fd = stream.open()
-                        except Exception as e:
-                            last_error = e
-                            fd = None
-                            continue
-
-                        # 打开成功：记住本次可用的 cdn host
-                        try:
-                            self._hls_cdn_host = candidate_url.split("edge-hls.", 1)[1].split("/", 1)[0]
-                        except Exception:
-                            pass
-                        break
-                except Exception as e:
-                    last_error = e
-                    continue
-
-            if fd is None:
-                if last_error is not None:
-                    raise last_error
-                log_event(f'Streamlink 未获取到流: {self.modelo}')
+            # 打开流并等待第一段数据（避免写空文件）
+            sl_session, fd, first_data, _ = self._open_streamlink_fd(stream_name)
+            if fd is None or not first_data:
                 self.online = False
                 return
 
-            # 真正开始录制
+            # 真正开始录制：收到第一段数据后再创建文件
             self.recording_start_time = time.time()
             self.segment_start_time = self.recording_start_time
 
-            # 从 hilos 转入 recording
+            self.create_new_file()
+            current_file = open(self.file, 'wb', buffering=1024 * 1024)
+            current_file.write(first_data)
+            started_recording = True
+
+            # 从 hilos 转入 recording（仅在真正开始写入后）
             with state_lock:
                 if self not in recording:
                     recording.append(self)
-                # 按模型名清理，避免 AddModelsThread 启动/append 的竞态导致重复
                 hilos[:] = [t for t in hilos if t.modelo != self.modelo]
 
-            current_file = open(self.file, 'wb', buffering=1024 * 1024)
-            started_recording = True
             print(f"[开始录制] 开始录制模特 {self.modelo} 到文件 {os.path.basename(self.file)}")
             log_event(f'开始录制: {self.modelo} -> {self.file}')
 
             last_online_check = time.time()
             last_link_check = time.time()
+            last_data_time = time.time()
+            no_data_restarts = 0
 
             try:
                 segment_duration_seconds = int(app_state.get("segment_duration", 30)) * 60
@@ -815,14 +1050,51 @@ class Modelo(threading.Thread):
                 # 读流（提高 chunk，显著降低CPU占用）
                 data = fd.read(STREAM_READ_SIZE)
                 if not data:
-                    if not self.isOnline():
-                        print(f"[检测] 模特 {self.modelo} 已经下线，停止录制")
-                        log_event(f'模特已下线，停止录制: {self.modelo}')
-                        break
+                    # 没数据先等一会儿；超时则尝试重连，避免一直写空文件
+                    if current_time - last_data_time >= NO_DATA_TIMEOUT_SECONDS:
+                        no_data_restarts += 1
+                        log_event(
+                            f'长时间无数据，尝试重连({no_data_restarts}/{MAX_NO_DATA_RESTARTS}): {self.modelo}'
+                        )
+
+                        if not self.isOnline():
+                            print(f"[检测] 模特 {self.modelo} 已经下线，停止录制")
+                            log_event(f'模特已下线，停止录制: {self.modelo}')
+                            break
+
+                        stream_name = self.stream_name or stream_name
+
+                        try:
+                            if fd:
+                                fd.close()
+                        except Exception:
+                            pass
+
+                        try:
+                            if sl_session:
+                                sl_session = None
+                        except Exception:
+                            pass
+
+                        sl_session, fd, first_data, _ = self._open_streamlink_fd(stream_name)
+                        if fd is None or not first_data:
+                            if no_data_restarts >= MAX_NO_DATA_RESTARTS:
+                                log_event(f'重连失败次数过多，停止录制: {self.modelo}')
+                                break
+                            last_data_time = current_time
+                            time.sleep(1)
+                            continue
+
+                        current_file.write(first_data)
+                        last_data_time = time.time()
+                        continue
+
                     time.sleep(0.5)
                     continue
 
                 current_file.write(data)
+                last_data_time = current_time
+                no_data_restarts = 0
 
         except streamlink.exceptions.NoPluginError:
             log_event(f'Streamlink 无法找到插件处理 URL: {self.modelo}')
@@ -843,6 +1115,11 @@ class Modelo(threading.Thread):
             try:
                 if fd:
                     fd.close()
+            except Exception:
+                pass
+            try:
+                if sl_session:
+                    sl_session = None
             except Exception:
                 pass
             try:
@@ -929,6 +1206,7 @@ class Modelo(threading.Thread):
 
     def isOnline(self):
         try:
+            self._refresh_proxy()
             url = f'https://stripchat.com/api/front/v2/models/username/{self.modelo}/cam'
             resp = self.http.get(url, timeout=10)
             resp.raise_for_status()
