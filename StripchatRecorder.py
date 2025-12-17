@@ -63,7 +63,7 @@ HLS_CDN_HOST_CANDIDATES = (
     "doppiocdn.live",
     "doppiocdn1.com",
 )
-HLS_MASTER_URL_TEMPLATE = "https://edge-hls.{cdn_host}/hls/{stream_name}/master/{stream_name}.m3u8"
+HLS_MASTER_URL_TEMPLATE = "https://edge-hls.{cdn_host}/hls/{stream_name}/master/{stream_name}{suffix}.m3u8"
 
 # postProcess 队列在 main 中按需创建
 processingQueue = None
@@ -692,6 +692,11 @@ class Modelo(threading.Thread):
         self.recording_start_time = None      # 新增：记录本次录制开始时间
         self.http = requests.Session()
         self.http.headers.update(DEFAULT_HEADERS)
+        # HLS/CDN 侧通常会校验 Referer/Origin；提前写入到 session headers
+        self.http.headers.update({
+            'Referer': f'https://stripchat.com/{self.modelo}',
+            'Origin': 'https://stripchat.com',
+        })
         self._proxy = get_effective_proxy()
         if self._proxy:
             # requests 会在不支持 socks/无依赖时抛异常；这里先设置，失败在请求时记录
@@ -699,8 +704,9 @@ class Modelo(threading.Thread):
         self.stream_name = None
         self._hls_cdn_host = None
         self._hls_token_headers = None
+        self._hls_suffixes = ['']  # 优先尝试 source（空 suffix），失败再降级
 
-    def _iter_hls_master_urls(self, stream_name: str):
+    def _iter_hls_master_urls(self, stream_name: str, suffix: str = ''):
         """生成可用的 HLS master.m3u8 URL（先用缓存 host，再轮询候选 host）。"""
         seen = set()
         if self._hls_cdn_host:
@@ -708,7 +714,7 @@ class Modelo(threading.Thread):
             edge_host = f"edge-hls.{self._hls_cdn_host}"
             try:
                 socket.getaddrinfo(edge_host, 443)
-                yield HLS_MASTER_URL_TEMPLATE.format(cdn_host=self._hls_cdn_host, stream_name=stream_name)
+                yield HLS_MASTER_URL_TEMPLATE.format(cdn_host=self._hls_cdn_host, stream_name=stream_name, suffix=suffix)
             except OSError:
                 pass
         for host in HLS_CDN_HOST_CANDIDATES:
@@ -720,7 +726,37 @@ class Modelo(threading.Thread):
                 socket.getaddrinfo(edge_host, 443)
             except OSError:
                 continue
-            yield HLS_MASTER_URL_TEMPLATE.format(cdn_host=host, stream_name=stream_name)
+            yield HLS_MASTER_URL_TEMPLATE.format(cdn_host=host, stream_name=stream_name, suffix=suffix)
+
+    @staticmethod
+    def _is_advert_playlist(text: str) -> bool:
+        """判断是否为 CPA/广告 playlist（避免录到 480P 广告流）。"""
+        if not text:
+            return False
+        lower = text.lower()
+        return (
+            '#ext-x-mouflon-advert' in lower
+            or '/cpa/' in lower
+            or '#ext-x-playlist-type:vod' in lower
+        )
+
+    def _variant_playlist_accessible(self, variant_url: str, token_headers: dict = None) -> bool:
+        """检查 variant playlist 是否可用且非广告流。"""
+        if not variant_url:
+            return False
+        try:
+            self._refresh_proxy()
+            r = self.http.get(variant_url, headers=(token_headers or {}), timeout=10)
+            if not (200 <= r.status_code < 400):
+                return False
+            # requests 默认跟随重定向；通过最终 URL / 内容识别广告流
+            if self._is_advert_playlist(r.text or ''):
+                return False
+            if 'cpa/' in (r.url or '').lower():
+                return False
+            return True
+        except Exception:
+            return False
 
     def _refresh_proxy(self) -> str:
         """运行时刷新代理（支持不重启修改 config/env）。"""
@@ -754,12 +790,9 @@ class Modelo(threading.Thread):
             pass
 
         # HLS 特定选项：增加 segment/stream 超时时间，避免过快断开
+        # streamlink 5.4.0 对应的是 stream-segment-timeout/stream-timeout
         try:
-            session.set_option('hls-segment-timeout', 30.0)  # 单个 segment 下载超时
-        except Exception:
-            pass
-        try:
-            session.set_option('hls-timeout', 60.0)  # HLS playlist 刷新超时
+            session.set_option('stream-segment-timeout', 30.0)  # 单个 segment 连接+读取超时
         except Exception:
             pass
         try:
@@ -876,7 +909,7 @@ class Modelo(threading.Thread):
                 self._refresh_proxy()
                 r = self.http.get(variant_url, headers=h, timeout=10)
                 last_status = r.status_code
-                if 200 <= r.status_code < 400:
+                if 200 <= r.status_code < 400 and not self._is_advert_playlist(r.text or '') and 'cpa/' not in (r.url or '').lower():
                     return h
             except Exception as e:
                 last_error = e
@@ -911,56 +944,91 @@ class Modelo(threading.Thread):
         """打开 HLS 流，返回 (streamlink_session, fd, first_data, master_url)。"""
         last_error = None
 
-        for candidate_url in self._iter_hls_master_urls(stream_name):
+        suffixes = self._hls_suffixes or ['']
+
+        for suffix in suffixes:
             if self._stopevent.is_set():
                 return None, None, b'', None
 
-            # 解析 master.m3u8，提取 Mouflon tokens（如 PSCH）用于下游 playlist/segments
-            info = self._fetch_hls_master_info(candidate_url)
-            token_headers = None
-            variant_url = None
-            if info:
-                tokens = info.get('tokens') or []
-                variants = info.get('variants') or []
-                variant_url = variants[0] if variants else None
-                candidates = self._build_hls_token_header_candidates(tokens)
-                token_headers = self._select_hls_token_headers(variant_url, candidates) if candidates else None
+            for candidate_url in self._iter_hls_master_urls(stream_name, suffix=suffix):
+                if self._stopevent.is_set():
+                    return None, None, b'', None
 
-            # 缓存 token headers，便于重连复用
-            if token_headers:
-                self._hls_token_headers = token_headers
-            elif self._hls_token_headers:
-                token_headers = self._hls_token_headers
+                # 解析 master.m3u8，提取 Mouflon tokens（如 PSCH）用于下游 playlist/segments
+                info = self._fetch_hls_master_info(candidate_url)
+                token_headers = None
+                variant_url = None
+                if info:
+                    tokens = info.get('tokens') or []
+                    variants = info.get('variants') or []
+                    variant_url = variants[0] if variants else None
+                    candidates = self._build_hls_token_header_candidates(tokens)
+                    token_headers = self._select_hls_token_headers(variant_url, candidates) if candidates else None
 
-            session = streamlink.Streamlink()
-            self._configure_streamlink_session(session, extra_headers=token_headers)
+                # 缓存 token headers，便于重连复用
+                if token_headers:
+                    self._hls_token_headers = token_headers
+                elif self._hls_token_headers:
+                    token_headers = self._hls_token_headers
 
-            try:
-                streams = session.streams(f'hlsvariant://{candidate_url}')
-                if not streams:
+                # 预检查：避免被 302/200 的 CPA 广告流骗到（常见表现为 480P 且只有十几秒）
+                if variant_url and not self._variant_playlist_accessible(variant_url, token_headers=token_headers):
+                    last_error = RuntimeError(f'variant playlist not accessible or advert (variant={variant_url})')
                     continue
-                stream = streams.get('best') or next(iter(streams.values()))
-                fd = stream.open()
-            except Exception as e:
-                last_error = e
-                continue
 
-            first_data = self._wait_for_first_data(fd, FIRST_DATA_TIMEOUT_SECONDS)
-            if not first_data:
+                session = streamlink.Streamlink()
+                self._configure_streamlink_session(session, extra_headers=token_headers)
+
                 try:
-                    fd.close()
+                    streams = session.streams(f'hlsvariant://{candidate_url}')
+                    if not streams:
+                        continue
+                    # 明确选择最高分辨率：解析 quality keys (如 '1080p', '720p', '480p') 按数值排序
+                    def parse_resolution(quality_key: str) -> int:
+                        """解析分辨率数值，如 '1080p' -> 1080, 'best' -> 999999"""
+                        if quality_key == 'best':
+                            return 999999
+                        if quality_key == 'source':
+                            return 999998
+                        if quality_key == 'worst':
+                            return 0
+                        try:
+                            # 尝试提取数字部分 (如 '720p' -> 720, '1080p60' -> 1080)
+                            import re
+                            match = re.search(r'(\d+)', quality_key)
+                            if match:
+                                return int(match.group(1))
+                        except Exception:
+                            pass
+                        return 0
+
+                    # 按分辨率降序排序，选择最高的
+                    sorted_streams = sorted(streams.items(), key=lambda x: parse_resolution(x[0]), reverse=True)
+                    selected_quality = sorted_streams[0][0] if sorted_streams else 'unknown'
+                    available_qualities = [k for k, v in sorted_streams]
+                    stream = sorted_streams[0][1] if sorted_streams else next(iter(streams.values()))
+                    log_event(f'选择分辨率: {self.modelo} - {selected_quality} (可用: {", ".join(available_qualities[:5])})')
+                    fd = stream.open()
+                except Exception as e:
+                    last_error = e
+                    continue
+
+                first_data = self._wait_for_first_data(fd, FIRST_DATA_TIMEOUT_SECONDS)
+                if not first_data:
+                    try:
+                        fd.close()
+                    except Exception:
+                        pass
+                    last_error = RuntimeError(f'no data from stream (master={candidate_url}, variant={variant_url})')
+                    continue
+
+                # 打开成功：记住本次可用的 cdn host
+                try:
+                    self._hls_cdn_host = candidate_url.split("edge-hls.", 1)[1].split("/", 1)[0]
                 except Exception:
                     pass
-                last_error = RuntimeError(f'no data from stream (master={candidate_url}, variant={variant_url})')
-                continue
 
-            # 打开成功：记住本次可用的 cdn host
-            try:
-                self._hls_cdn_host = candidate_url.split("edge-hls.", 1)[1].split("/", 1)[0]
-            except Exception:
-                pass
-
-            return session, fd, first_data, candidate_url
+                return session, fd, first_data, candidate_url
 
         if last_error is not None:
             log_event(f'打开流失败: {self.modelo} - {type(last_error).__name__}: {last_error}')
@@ -1264,11 +1332,31 @@ class Modelo(threading.Thread):
 
             self.stream_name = str(stream_name)
 
+            # 根据 broadcastSettings.presets 生成 suffix 优先级（高->低）
+            try:
+                suffixes = ['']  # source（无 suffix）放最前，能用则优先
+                broadcast = cam.get('broadcastSettings') if isinstance(cam, dict) else None
+                presets = (broadcast or {}).get('presets') if isinstance(broadcast, dict) else None
+                default_presets = (presets or {}).get('default') if isinstance(presets, dict) else None
+                for p in (default_presets or []):
+                    if not p:
+                        continue
+                    s = str(p).strip()
+                    if not s:
+                        continue
+                    if not s.startswith('_'):
+                        s = f'_{s}'
+                    if s not in suffixes:
+                        suffixes.append(s)
+                self._hls_suffixes = suffixes or ['']
+            except Exception:
+                self._hls_suffixes = ['']
+
             # 新版 HLS master URL（edge-hls.* + /hls/{streamName}/master/{streamName}.m3u8）
             # 直接返回一个默认可用的 host；如失败，run() 会自动轮询其它 host。
             if not self._hls_cdn_host:
                 self._hls_cdn_host = "doppiocdn.live"
-            return HLS_MASTER_URL_TEMPLATE.format(cdn_host=self._hls_cdn_host, stream_name=self.stream_name)
+            return HLS_MASTER_URL_TEMPLATE.format(cdn_host=self._hls_cdn_host, stream_name=self.stream_name, suffix='')
         except requests.exceptions.RequestException as e: # 更具体的异常捕获
              log_event(f'网络请求错误 (isOnline): {self.modelo} - {e}')
              return False
