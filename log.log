@@ -7264,3 +7264,311 @@
 17/12/2025 12:18:09 Streamlink 插件错误: megan--chan - Unable to open URL: https://edge-hls.doppiocdn.org/hls/198248088/master/198248088.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/198248088/master/198248088.m3u8)
 
 17/12/2025 13:43:58 开始录制: _asunyan -> /root/sc/captures/_asunyan/2025.12.17_13.43.58__asunyan.mp4
+
+17/12/2025 14:40:32 [线程] 后处理线程 postProcess 已启动。
+
+17/12/2025 14:40:32 Web服务启动错误: 端口=8080, 错误类型=OSError, 错误信息=端口 8080 已被占用
+
+17/12/2025 14:40:32 Web服务启动错误: 端口=8081, 错误类型=OSError, 错误信息=端口 8081 已被占用
+
+17/12/2025 14:40:32 Web服务启动错误: 端口=8082, 错误类型=OSError, 错误信息=端口 8082 已被占用
+
+17/12/2025 14:40:32 Web服务启动错误: 端口=8083, 错误类型=OSError, 错误信息=端口 8083 已被占用
+
+17/12/2025 14:40:32 Web服务启动错误: 端口=8084, 错误类型=OSError, 错误信息=端口 8084 已被占用
+
+17/12/2025 14:40:32 [Web服务] Web界面运行中: http://localhost:8085 或 http://服务器IP:8085
+
+17/12/2025 14:40:33 HLS 下游 playlist 不可访问: darylbarks - https://b-hls-04.doppiocdn.live/hls/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:40:55 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.com/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:41:16 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.media/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:41:36 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.net/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:41:58 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:42:18 打开流失败: darylbarks - RuntimeError: no data from stream (master=https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8, variant=https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8)
+
+17/12/2025 14:42:34 HLS 下游 playlist 不可访问: darylbarks - https://b-hls-04.doppiocdn.live/hls/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:42:55 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.com/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:43:16 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.media/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:43:37 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.net/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:43:58 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:44:18 打开流失败: darylbarks - RuntimeError: no data from stream (master=https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8, variant=https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8)
+
+17/12/2025 14:44:34 HLS 下游 playlist 不可访问: darylbarks - https://b-hls-04.doppiocdn.live/hls/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:44:55 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.com/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:45:17 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.media/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:45:37 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.net/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:45:58 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:46:18 打开流失败: darylbarks - RuntimeError: no data from stream (master=https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8, variant=https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8)
+
+17/12/2025 14:46:35 HLS 下游 playlist 不可访问: darylbarks - https://b-hls-04.doppiocdn.live/hls/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:46:56 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.com/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:47:17 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.media/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:47:38 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.net/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:48:01 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:48:21 打开流失败: darylbarks - RuntimeError: no data from stream (master=https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8, variant=https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8)
+
+17/12/2025 14:48:35 HLS 下游 playlist 不可访问: darylbarks - https://b-hls-04.doppiocdn.live/hls/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:48:56 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.com/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:49:17 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.media/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:49:38 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.net/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:49:59 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:50:19 打开流失败: darylbarks - RuntimeError: no data from stream (master=https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8, variant=https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8)
+
+17/12/2025 14:50:36 HLS 下游 playlist 不可访问: darylbarks - https://b-hls-04.doppiocdn.live/hls/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:50:57 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.com/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:51:18 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.media/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:51:38 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.net/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:51:59 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:52:19 打开流失败: darylbarks - RuntimeError: no data from stream (master=https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8, variant=https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8)
+
+17/12/2025 14:52:36 HLS 下游 playlist 不可访问: darylbarks - https://b-hls-04.doppiocdn.live/hls/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:52:57 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.com/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:53:18 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.media/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:53:39 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.net/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:54:00 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:54:21 打开流失败: darylbarks - RuntimeError: no data from stream (master=https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8, variant=https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8)
+
+17/12/2025 14:54:37 HLS 下游 playlist 不可访问: darylbarks - https://b-hls-04.doppiocdn.live/hls/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:54:59 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.com/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:55:20 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.media/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:55:40 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.net/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:56:01 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:56:22 打开流失败: darylbarks - RuntimeError: no data from stream (master=https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8, variant=https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8)
+
+17/12/2025 14:56:38 HLS 下游 playlist 不可访问: darylbarks - https://b-hls-04.doppiocdn.live/hls/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:56:59 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.com/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:57:20 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.media/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:57:41 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.net/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:58:02 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:58:22 打开流失败: darylbarks - RuntimeError: no data from stream (master=https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8, variant=https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8)
+
+17/12/2025 14:58:38 HLS 下游 playlist 不可访问: darylbarks - https://b-hls-04.doppiocdn.live/hls/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:59:00 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.com/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:59:21 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.media/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 14:59:42 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.net/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 15:00:03 HLS 下游 playlist 不可访问: darylbarks - https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8 (HTTP 403)，可能需要代理/解锁
+
+17/12/2025 15:00:24 打开流失败: darylbarks - RuntimeError: no data from stream (master=https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8, variant=https://media-hls.doppiocdn.org/b-hls-04/171989997/171989997.m3u8)
+
+17/12/2025 15:00:39 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:00:39 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:00:39 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:00:40 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:00:40 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:00:40 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:00:59 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:00:59 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:00:59 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:01:00 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:01:00 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:01:00 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:01:19 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:01:19 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:01:20 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:01:20 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:01:20 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:01:21 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:01:39 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:01:39 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:01:40 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:01:40 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:01:41 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:01:41 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:01:59 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:00 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:00 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:00 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:00 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:01 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:02:19 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:20 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:20 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:20 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:21 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:21 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:02:39 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:40 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:40 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:41 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:41 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:02:41 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:02:59 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:00 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:00 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:00 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:01 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:01 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:03:20 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:20 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:20 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:21 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:21 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:21 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:03:40 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:40 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:40 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:41 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:41 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:03:41 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:04:00 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:00 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:01 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:02 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:02 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:02 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:04:20 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:20 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:21 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:21 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:21 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:22 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:04:40 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:40 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:41 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:41 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:42 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:04:42 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:05:40 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.live/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:05:40 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.com/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:05:41 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.media/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:05:42 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.net/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:05:42 HLS master 获取失败: darylbarks - HTTPError: 404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8
+
+17/12/2025 15:05:43 打开流失败: darylbarks - PluginError: Unable to open URL: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8 (404 Client Error: Not Found for url: https://edge-hls.doppiocdn.org/hls/171989997/master/171989997.m3u8)
+
+17/12/2025 15:17:45 开始录制: nana_wilson -> /root/sc/captures/nana_wilson/2025.12.17_15.17.45_nana_wilson.mp4
+
+17/12/2025 15:18:32 长时间无数据，尝试重连(1/3): nana_wilson
+
+17/12/2025 15:19:19 长时间无数据，尝试重连(1/3): nana_wilson
