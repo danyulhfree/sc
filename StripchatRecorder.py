@@ -780,6 +780,24 @@ class Modelo(threading.Thread):
         self.recording_start_time = None      # 新增：记录本次录制开始时间
         self.http = requests.Session()
         self.http.headers.update(DEFAULT_HEADERS)
+        self._applied_proxy = None
+
+    def _refresh_proxy(self):
+        """根据配置/环境变量更新 requests 代理（避免 isOnline 调用时崩溃）。"""
+        proxy = (os.environ.get("SC_PROXY") or setting.get("proxy") or "").strip()
+        if proxy == self._applied_proxy:
+            return
+        self._applied_proxy = proxy
+
+        if not proxy:
+            self.http.proxies = {}
+            return
+
+        # requests 使用字典形式配置代理
+        self.http.proxies = {
+            "http": proxy,
+            "https": proxy,
+        }
 
     def run_mouflon(self, stream_name: str, psch: str, pkey: str, decrypt_key: str):
         """MOUFLON-aware HLS recording using authenticated URLs and segment decryption."""
