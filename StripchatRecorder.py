@@ -17,6 +17,11 @@ import base64
 import re
 from urllib.parse import urljoin
 from typing import Optional
+import hashlib
+import base64
+import re
+from urllib.parse import urljoin
+from typing import Optional
 from flask import Flask, render_template, request, redirect, url_for
 
 if os.name == 'nt':
@@ -25,6 +30,7 @@ if os.name == 'nt':
     kernel32 = ctypes.windll.kernel32
     kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
 
+mainDir = os.path.abspath(sys.path[0])
 mainDir = os.path.abspath(sys.path[0])
 Config = configparser.ConfigParser()
 setting = {}
@@ -229,6 +235,8 @@ app_state = {
     "storage_info": {},  # 添加存储空间信息
     "segment_duration": 30,  # 分段录制时长，默认30分钟
     "segment_duration_overridden": False,  # Web 运行时覆盖，避免被 readConfig 周期性重置
+    "segment_duration": 30,  # 分段录制时长，默认30分钟
+    "segment_duration_overridden": False,  # Web 运行时覆盖，避免被 readConfig 周期性重置
 }
 
 # 获取存储空间信息
@@ -236,6 +244,12 @@ def get_storage_info():
     """获取存储空间使用情况"""
     storage_info = {}
     
+    # 优先显示录制目录所在磁盘的空间
+    check_path = setting.get('save_directory') or mainDir or "/"
+    try:
+        total, used, free = shutil.disk_usage(check_path)
+    except Exception:
+        total, used, free = shutil.disk_usage("/")
     # 优先显示录制目录所在磁盘的空间
     check_path = setting.get('save_directory') or mainDir or "/"
     try:
@@ -272,10 +286,24 @@ def index():
     with state_lock:
         hilos_snapshot = list(hilos)
         recording_snapshot = list(recording)
+    storage = get_storage_info()
+    with state_lock:
+        app_state["storage_info"] = storage
+        repeated_models = list(app_state.get("repeatedModels", []))
+        counter_model = int(app_state.get("counterModel", 0))
+        port = int(app_state.get("port", 8080))
+        web_status = str(app_state.get("web_status", ""))
+        segment_duration = int(app_state.get("segment_duration", 30))
+        storage_info = dict(app_state.get("storage_info", {}))
+
+    with state_lock:
+        hilos_snapshot = list(hilos)
+        recording_snapshot = list(recording)
 
     # 计算录制时长
     recording_info = []
     current_time = time.time()
+    for model in recording_snapshot:
     for model in recording_snapshot:
         elapsed_seconds = 0
         if hasattr(model, 'recording_start_time') and model.recording_start_time:
@@ -294,7 +322,14 @@ def index():
 
     return render_template('index.html',
                            hilos=hilos_snapshot,
+                           hilos=hilos_snapshot,
                            recording_info=recording_info, # 传递包含时长的新列表
+                           repeatedModels=repeated_models,
+                           counterModel=counter_model,
+                           port=port,
+                           web_status=web_status, # 传递web状态
+                           segment_duration=segment_duration,
+                           storage_info=storage_info,
                            repeatedModels=repeated_models,
                            counterModel=counter_model,
                            port=port,
@@ -309,9 +344,15 @@ def edit_wanted():
     if request.method == 'POST':
         # 保存更新后的内容到wanted.txt
         atomic_write_text(setting['wishlist'], request.form.get('content', ''))
+        atomic_write_text(setting['wishlist'], request.form.get('content', ''))
         return redirect(url_for('index'))
     
     # 读取wanted.txt内容
+    try:
+        with open(setting['wishlist'], 'r', encoding='utf-8') as f:
+            content = f.read()
+    except FileNotFoundError:
+        content = ""
     try:
         with open(setting['wishlist'], 'r', encoding='utf-8') as f:
             content = f.read()
@@ -327,9 +368,13 @@ def stop_recording(model_name):
     with state_lock:
         recording_snapshot = list(recording)
     for modelo in recording_snapshot:  # 使用快照遍历，避免在遍历过程中修改
+    with state_lock:
+        recording_snapshot = list(recording)
+    for modelo in recording_snapshot:  # 使用快照遍历，避免在遍历过程中修改
         if modelo.modelo == model_name:
             modelo.stop()
             # 记录停止事件
+            log_event(f'通过Web界面停止录制: {model_name}')
             log_event(f'通过Web界面停止录制: {model_name}')
             break
     return redirect(url_for('index'))
@@ -344,7 +389,11 @@ def set_segment_duration():
             with state_lock:
                 app_state["segment_duration"] = new_duration
                 app_state["segment_duration_overridden"] = True
+            with state_lock:
+                app_state["segment_duration"] = new_duration
+                app_state["segment_duration_overridden"] = True
             # 记录到日志
+            log_event(f'分段录制时长已更新为: {new_duration}分钟')
             log_event(f'分段录制时长已更新为: {new_duration}分钟')
     except (ValueError, KeyError):
         pass  # 忽略无效输入
@@ -369,10 +418,16 @@ def start_web_server():
                 app_state["port"] = port  # 更新当前使用的端口
                 # 更新web状态信息
                 app_state["web_status"] = f"Web服务器正在启动，端口: {port}..."
+            with state_lock:
+                app_state["port"] = port  # 更新当前使用的端口
+                # 更新web状态信息
+                app_state["web_status"] = f"Web服务器正在启动，端口: {port}..."
             print(f"\n[Web服务] 正在端口 {port} 上启动Web界面...")
             
             # 先检查端口是否被占用
             import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                result = sock.connect_ex(('127.0.0.1', port))
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 result = sock.connect_ex(('127.0.0.1', port))
             
@@ -385,7 +440,13 @@ def start_web_server():
             with state_lock:
                 app_state["web_status"] = success_msg
             log_event(success_msg)
+            success_msg = f"[Web服务] Web界面运行中: http://localhost:{port} 或 http://服务器IP:{port}"
+            print(success_msg)
+            with state_lock:
+                app_state["web_status"] = success_msg
+            log_event(success_msg)
             app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
+            return  # app.run 阻塞，正常情况下不会返回
             return  # app.run 阻塞，正常情况下不会返回
         except Exception as e:
             # 捕获所有异常，不仅仅是OSError
@@ -396,6 +457,7 @@ def start_web_server():
             
             # 记录到日志文件
             log_event(f'Web服务启动错误: 端口={port}, 错误类型={error_type}, 错误信息={error_msg}')
+            log_event(f'Web服务启动错误: 端口={port}, 错误类型={error_type}, 错误信息={error_msg}')
             
             port += 1
             if port > max_port:
@@ -403,8 +465,11 @@ def start_web_server():
                 print(final_error_msg)
                 with state_lock:
                     app_state["web_status"] = final_error_msg
+                with state_lock:
+                    app_state["web_status"] = final_error_msg
                 
                 # 记录到日志文件
+                log_event(final_error_msg)
                 log_event(final_error_msg)
                 break
 
@@ -598,6 +663,9 @@ def firstRun():
     script = os.path.join(mainDir, 't.sh')
     if os.path.isfile(script):
         subprocess.call(['bash', script], cwd=mainDir)
+    script = os.path.join(mainDir, 't.sh')
+    if os.path.isfile(script):
+        subprocess.call(['bash', script], cwd=mainDir)
 
 
 def cls():
@@ -641,7 +709,17 @@ def readConfig():
     
     try:
         segment_duration = int(Config.get('settings', 'segmentDuration', fallback='0'))
+        segment_duration = int(Config.get('settings', 'segmentDuration', fallback='0'))
         if segment_duration > 0:
+            with state_lock:
+                if not app_state.get("segment_duration_overridden", False):
+                    app_state["segment_duration"] = segment_duration
+    except ValueError:
+        pass  # 值无效则忽略，沿用当前设置
+        
+    log_event(f'配置加载完毕.')
+
+    os.makedirs(setting["save_directory"], exist_ok=True)
             with state_lock:
                 if not app_state.get("segment_duration_overridden", False):
                     app_state["segment_duration"] = segment_duration
@@ -657,12 +735,17 @@ def readConfig():
     up_dir = os.path.join(captures_parent_dir, 'up')
     setting['up_directory'] = up_dir  # 保存到设置中方便其他函数使用
     os.makedirs(up_dir, exist_ok=True)
+    os.makedirs(up_dir, exist_ok=True)
 
 
 def process_existing_captures():
     """处理已经存在于captures目录中的录制文件，将它们移动到up目录"""
     import glob
     
+    captures_dir = setting.get('save_directory')
+    up_dir = setting.get('up_directory')  # 使用保存在设置中的up目录路径
+    if not captures_dir or not os.path.isdir(captures_dir) or not up_dir:
+        return
     captures_dir = setting.get('save_directory')
     up_dir = setting.get('up_directory')  # 使用保存在设置中的up目录路径
     if not captures_dir or not os.path.isdir(captures_dir) or not up_dir:
@@ -680,9 +763,11 @@ def process_existing_captures():
         for file_path in mp4_files:
             # 检查文件是否大于1KB
             if os.path.getsize(file_path) > MIN_FILE_SIZE_BYTES:
+            if os.path.getsize(file_path) > MIN_FILE_SIZE_BYTES:
                 try:
                     # 创建模特名称对应的up子目录
                     model_up_dir = os.path.join(up_dir, model_dir)
+                    os.makedirs(model_up_dir, exist_ok=True)
                     os.makedirs(model_up_dir, exist_ok=True)
                     
                     filename = os.path.basename(file_path)
@@ -692,7 +777,9 @@ def process_existing_captures():
                     moved_count += 1
                     # 记录日志
                     log_event(f'已存在的文件已移动到上传文件夹: {dest_path}')
+                    log_event(f'已存在的文件已移动到上传文件夹: {dest_path}')
                 except Exception as e:
+                    log_event(f'移动已存在文件时出错: {file_path} -> {e}')
                     log_event(f'移动已存在文件时出错: {file_path} -> {e}')
     
     if moved_count > 0:
@@ -701,13 +788,25 @@ def process_existing_captures():
 
 def postProcess():
     log_event('[线程] 后处理线程 postProcess 已启动。')
+    log_event('[线程] 后处理线程 postProcess 已启动。')
 
     while True:
         try:
             if processingQueue is None:
                 time.sleep(1)
                 continue
+            if processingQueue is None:
+                time.sleep(1)
+                continue
 
+            try:
+                parameters = processingQueue.get(timeout=1)
+            except queue.Empty:
+                continue
+
+            try:
+                model = parameters.get('model', '未知模型')
+                path = parameters.get('path')
             try:
                 parameters = processingQueue.get(timeout=1)
             except queue.Empty:
@@ -724,9 +823,21 @@ def postProcess():
                 filename = os.path.basename(path)
                 directory = os.path.dirname(path)
                 file_base = os.path.splitext(filename)[0]
+                if not path or not os.path.isfile(path):
+                    log_event(f'[错误][postProcess] 从队列获取的任务无效或文件不存在: {parameters}')
+                    continue
+
+                filename = os.path.basename(path)
+                directory = os.path.dirname(path)
+                file_base = os.path.splitext(filename)[0]
 
                 log_event(f'[postProcess] 开始处理文件: {filename} (来自队列)')
+                log_event(f'[postProcess] 开始处理文件: {filename} (来自队列)')
 
+                post_cmd_str = (setting.get('postProcessingCommand') or '').strip()
+                if post_cmd_str:
+                    cmd_list = shlex.split(post_cmd_str) + [path, filename, directory, model, file_base, 'cam4']
+                    log_event(f'[postProcess] 准备调用命令: {" ".join(cmd_list)}')
                 post_cmd_str = (setting.get('postProcessingCommand') or '').strip()
                 if post_cmd_str:
                     cmd_list = shlex.split(post_cmd_str) + [path, filename, directory, model, file_base, 'cam4']
@@ -764,7 +875,40 @@ def postProcess():
                     log_event(f'[警告][postProcess] 未配置 postProcessingCommand，跳过后处理步骤 for {filename}')
             finally:
                 processingQueue.task_done()
+                    try:
+                        result = subprocess.run(
+                            cmd_list,
+                            check=False,
+                            capture_output=True,
+                            text=True,
+                            timeout=timeout_seconds,
+                            cwd=mainDir,
+                        )
+                        if result.returncode == 0:
+                            log_event(f'[postProcess] 命令成功完成 (退出码 0): {filename}')
+                        else:
+                            log_event(
+                                f'[错误][postProcess] 命令执行失败 (退出码 {result.returncode}) for {filename}:\n'
+                                f'  命令: {" ".join(cmd_list)}\n'
+                                f'  Stdout: {result.stdout.strip()}\n'
+                                f'  Stderr: {result.stderr.strip()}'
+                            )
+                    except subprocess.TimeoutExpired:
+                        log_event(f'[错误][postProcess] 命令执行超时 ({timeout_seconds}秒): {" ".join(cmd_list)} for {filename}')
+                    except FileNotFoundError:
+                        log_event(f'[错误][postProcess] 命令未找到 (请检查路径): {cmd_list[0]} for {filename}')
+                    except Exception as e:
+                        log_event(
+                            f'[错误][postProcess] 调用命令时发生未知异常 for {filename}: {e}\n'
+                            f'  命令: {" ".join(cmd_list)}'
+                        )
+                else:
+                    log_event(f'[警告][postProcess] 未配置 postProcessingCommand，跳过后处理步骤 for {filename}')
+            finally:
+                processingQueue.task_done()
         except Exception as e:
+            log_event(f'[致命错误][postProcess] 后处理线程遇到意外错误: {e}')
+            time.sleep(5)
             log_event(f'[致命错误][postProcess] 后处理线程遇到意外错误: {e}')
             time.sleep(5)
 
@@ -1019,6 +1163,11 @@ class Modelo(threading.Thread):
             os.makedirs(os.path.join(setting['save_directory'], self.modelo), exist_ok=True)
 
             # 录制开始前创建初始文件路径
+
+            # 确保目录存在
+            os.makedirs(os.path.join(setting['save_directory'], self.modelo), exist_ok=True)
+
+            # 录制开始前创建初始文件路径
             self.create_new_file()
 
             session = streamlink.Streamlink()
@@ -1265,6 +1414,9 @@ class Modelo(threading.Thread):
             up_dir = setting.get('up_directory')
             if not up_dir:
                 return
+            up_dir = setting.get('up_directory')
+            if not up_dir:
+                return
             filename = os.path.basename(file_path)
             model_up_dir = os.path.join(up_dir, self.modelo)
             dest_path = os.path.join(model_up_dir, filename)
@@ -1275,13 +1427,21 @@ class Modelo(threading.Thread):
             shutil.move(file_path, dest_path)
             print(f"[文件移动] {filename} 已移动到上传文件夹: {model_up_dir}")
             log_event(f'文件已移动到上传文件夹: {dest_path}')
+            print(f"[文件移动] {filename} 已移动到上传文件夹: {model_up_dir}")
+            log_event(f'文件已移动到上传文件夹: {dest_path}')
         except Exception as e:
+            log_event(f'移动文件到上传文件夹时出错: {e}')
             log_event(f'移动文件到上传文件夹时出错: {e}')
 
     def exceptionHandler(self):
         """兼容旧逻辑：标记停止并清理全局状态。"""
+        """兼容旧逻辑：标记停止并清理全局状态。"""
         self.stop()
         self.online = False
+        with state_lock:
+            if self in recording:
+                recording.remove(self)
+            hilos[:] = [t for t in hilos if t is not self]
         with state_lock:
             if self in recording:
                 recording.remove(self)
@@ -1297,11 +1457,16 @@ class Modelo(threading.Thread):
             
             # 检查响应类型
             if isinstance(data, list):
+            if isinstance(data, list):
                 # 如果返回的是列表，说明可能是错误响应
+                log_event(f'API返回列表而不是预期的字典: {self.modelo}')
                 log_event(f'API返回列表而不是预期的字典: {self.modelo}')
                 return False
                 
             hls_url = ''
+            if 'cam' in data.keys():
+                if {'isCamAvailable', 'streamName'} <= data['cam'].keys():
+                    if data['cam']['isCamAvailable'] and data['cam']['streamName']:
             if 'cam' in data.keys():
                 if {'isCamAvailable', 'streamName'} <= data['cam'].keys():
                     if data['cam']['isCamAvailable'] and data['cam']['streamName']:
@@ -1319,8 +1484,40 @@ class Modelo(threading.Thread):
                            if not hls_url: # Should not happen if we use edge-hls fallback
                                log_event(f'无 HLS 地址，尝试使用 Profile URL: {self.modelo}')
                                return f'https://stripchat.com/{self.modelo}'
+                        if 'viewServers' in data['cam'] and 'flashphoner-hls' in data['cam']['viewServers']:
+                           hls_url = f'https://{data["cam"]["viewServers"]["flashphoner-hls"]}/hls/{data["cam"]["streamName"]}/playlist.m3u8'
+                        elif 'hlsUrl' in data['cam']: # 备选方案: 直接使用 hlsUrl
+                           hls_url = data['cam']['hlsUrl']
+                        else: 
+                           # 新备选: edge-hls / master playlist (verified 2024-12)
+                           hls_url = f'https://edge-hls.doppiocdn.live/hls/{data["cam"]["streamName"]}/master/{data["cam"]["streamName"]}_auto.m3u8'
+                           
+                           # 如果没有 viewServers 和 hlsUrl，说明是 WebRTC 或受保护流。
+                           # 返回 Profile URL 让 Streamlink 插件尝试处理 (需配合正确 Headers)
+                           if not hls_url: # Should not happen if we use edge-hls fallback
+                               log_event(f'无 HLS 地址，尝试使用 Profile URL: {self.modelo}')
+                               return f'https://stripchat.com/{self.modelo}'
 
             if len(hls_url):
+                # 验证URL是否有效 (带 Cookies)
+                try:
+                    # 使用 Session (含 Cookies) 发送 HEAD 请求
+                    with self.http.head(hls_url, timeout=5, allow_redirects=True) as r:
+                         if r.status_code >= 400:
+                             log_event(f'HLS URL无效 (Status {r.status_code}): {self.modelo} - {hls_url}')
+                             # 如果无效，以前是回退到 Profile URL，但现在 Profile URL 也不行 (NoPlugin)
+                             # 只有当 Streamlink 有 stripchat 插件时才回退到 Profile。
+                             # 现在我们相信 cookies 能解决 403，所以这里的 403 可能是 cookies 失效。
+                             # 但如果用户提供了 cookies，我们应该尝试用 cookies 去录制 HLS。
+                             # 可是如果 HEAD 都 403，streamlink 可能也会 403。
+                             # 无论如何，返回 HLS URL 让 Streamlink 试一把（它也会带 cookies）。
+                             pass # 忽略 403，让 run() 里的 streamlink 带 cookie 再试一次
+                             
+                except Exception as e:
+                    log_event(f'验证HLS URL失败: {self.modelo} - {e}')
+                    # 网络错误可能导致误判，保守返回 URL
+                
+                return hls_url
                 # 验证URL是否有效 (带 Cookies)
                 try:
                     # 使用 Session (含 Cookies) 发送 HEAD 请求
@@ -1377,8 +1574,10 @@ class Modelo(threading.Thread):
             return HLS_MASTER_URL_TEMPLATE.format(cdn_host=self._hls_cdn_host, stream_name=self.stream_name, suffix='')
         except requests.exceptions.RequestException as e: # 更具体的异常捕获
              log_event(f'网络请求错误 (isOnline): {self.modelo} - {e}')
+             log_event(f'网络请求错误 (isOnline): {self.modelo} - {e}')
              return False
         except Exception as e:
+             log_event(f'检查在线状态时出错 (isOnline): {self.modelo} - {e}')
              log_event(f'检查在线状态时出错 (isOnline): {self.modelo} - {e}')
              return False
 
@@ -1394,6 +1593,8 @@ class CleaningThread(threading.Thread):
     def run(self):
         global hilos, recording
         while True:
+            with state_lock:
+                hilos[:] = [hilo for hilo in hilos if hilo.is_alive() or hilo.online]
             with state_lock:
                 hilos[:] = [hilo for hilo in hilos if hilo.is_alive() or hilo.online]
             for i in range(10, 0, -1):
@@ -1430,6 +1631,26 @@ class AddModelsThread(threading.Thread):
             model = name.lower()
             if model in seen:
                 repeated.append(model)
+        wishlist_path = setting.get('wishlist')
+        if not wishlist_path:
+            return
+
+        try:
+            with open(wishlist_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.read().splitlines()
+        except Exception as e:
+            log_event(f'读取 wanted 列表失败: {wishlist_path} - {e}')
+            return
+
+        raw_models = [line.strip() for line in lines if line.strip()]
+
+        seen = set()
+        unique_models = []
+        repeated = []
+        for name in raw_models:
+            model = name.lower()
+            if model in seen:
+                repeated.append(model)
             else:
                 seen.add(model)
                 unique_models.append(model)
@@ -1446,7 +1667,38 @@ class AddModelsThread(threading.Thread):
             active_models = {t.modelo for t in hilos} | {t.modelo for t in recording}
             for model in unique_models:
                 if model not in active_models:
+                seen.add(model)
+                unique_models.append(model)
+
+        self.wanted = unique_models
+        self.repeatedModels = repeated
+        self.counterModel = len(unique_models)
+
+        # 需要启动的线程与需要停止的录制线程（避免持锁时 start/stop）
+        threads_to_start = []
+        threads_to_stop = []
+
+        with state_lock:
+            active_models = {t.modelo for t in hilos} | {t.modelo for t in recording}
+            for model in unique_models:
+                if model not in active_models:
                     thread = Modelo(model)
+                    hilos.append(thread)  # 先 append 再 start，避免竞态导致同时出现在 hilos/recording
+                    threads_to_start.append(thread)
+                    active_models.add(model)
+
+            for hilo in recording:
+                if hilo.modelo not in seen:
+                    threads_to_stop.append(hilo)
+
+            # 更新应用状态
+            app_state["repeatedModels"] = self.repeatedModels
+            app_state["counterModel"] = self.counterModel
+
+        for thread in threads_to_start:
+            thread.start()
+        for thread in threads_to_stop:
+            thread.stop()
                     hilos.append(thread)  # 先 append 再 start，避免竞态导致同时出现在 hilos/recording
                     threads_to_start.append(thread)
                     active_models.add(model)
@@ -1502,6 +1754,11 @@ if __name__ == '__main__':
                     hilos_len = len(hilos)
                     recording_snapshot = list(recording)
                 print(f"[Web服务状态] {web_status}")
+                with state_lock:
+                    web_status = app_state.get('web_status', '')
+                    hilos_len = len(hilos)
+                    recording_snapshot = list(recording)
+                print(f"[Web服务状态] {web_status}")
                 print("=" * 50)
                 
                 if len(addModelsThread.repeatedModels): print(
@@ -1510,7 +1767,10 @@ if __name__ == '__main__':
                 print(
                     f'{hilos_len:02d} alive Threads (1 Thread per non-recording model), cleaning dead/not-online Threads in {cleaningThread.interval:02d} seconds, {addModelsThread.counterModel:02d} models in wanted')
                 print(f'Online Threads (models): {len(recording_snapshot):02d}')
+                    f'{hilos_len:02d} alive Threads (1 Thread per non-recording model), cleaning dead/not-online Threads in {cleaningThread.interval:02d} seconds, {addModelsThread.counterModel:02d} models in wanted')
+                print(f'Online Threads (models): {len(recording_snapshot):02d}')
                 print('The following models are being recorded:')
+                for hiloModelo in recording_snapshot: print(
                 for hiloModelo in recording_snapshot: print(
                     f'  Model: {hiloModelo.modelo}  -->  File: {os.path.basename(hiloModelo.file)}')
                 print(f'Next check in {i:02d} seconds\r', end='')
