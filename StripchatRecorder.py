@@ -22,7 +22,7 @@ import base64
 import re
 from urllib.parse import urljoin
 from typing import Optional
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, jsonify
 
 if os.name == 'nt':
     import ctypes
@@ -269,41 +269,39 @@ def get_storage_info():
     return storage_info
 
 # Flask路由
-@app.route('/')
-def index():
-    """主页，显示当前状态"""
+def get_file_size_str(file_path):
+    try:
+        if not file_path or not os.path.exists(file_path):
+            return "0B"
+        size = os.path.getsize(file_path)
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024:
+                return f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{size:.1f} TB"
+    except:
+        return "0B"
+
+def get_system_status_data():
     # 更新存储空间信息
     storage = get_storage_info()
     with state_lock:
         app_state["storage_info"] = storage
+        # basic info
         repeated_models = list(app_state.get("repeatedModels", []))
         counter_model = int(app_state.get("counterModel", 0))
         port = int(app_state.get("port", 8080))
         web_status = str(app_state.get("web_status", ""))
         segment_duration = int(app_state.get("segment_duration", 30))
         storage_info = dict(app_state.get("storage_info", {}))
-
-    with state_lock:
-        hilos_snapshot = list(hilos)
-        recording_snapshot = list(recording)
-    storage = get_storage_info()
-    with state_lock:
-        app_state["storage_info"] = storage
-        repeated_models = list(app_state.get("repeatedModels", []))
-        counter_model = int(app_state.get("counterModel", 0))
-        port = int(app_state.get("port", 8080))
-        web_status = str(app_state.get("web_status", ""))
-        segment_duration = int(app_state.get("segment_duration", 30))
-        storage_info = dict(app_state.get("storage_info", {}))
-
-    with state_lock:
+        
+        # hilos/recording snapshots
         hilos_snapshot = list(hilos)
         recording_snapshot = list(recording)
 
     # 计算录制时长
     recording_info = []
     current_time = time.time()
-    for model in recording_snapshot:
     for model in recording_snapshot:
         elapsed_seconds = 0
         if hasattr(model, 'recording_start_time') and model.recording_start_time:
@@ -317,49 +315,37 @@ def index():
         recording_info.append({
             "name": model.modelo,
             "file": os.path.basename(model.file) if model.file else "N/A",
-            "elapsed_time": elapsed_formatted
+            "elapsed_time": elapsed_formatted,
+            "size": get_file_size_str(model.file) if model.file else "0B"
         })
 
-    return render_template('index.html',
-                           hilos=hilos_snapshot,
-                           hilos=hilos_snapshot,
-                           recording_info=recording_info, # 传递包含时长的新列表
-                           repeatedModels=repeated_models,
-                           counterModel=counter_model,
-                           port=port,
-                           web_status=web_status, # 传递web状态
-                           segment_duration=segment_duration,
-                           storage_info=storage_info,
-                           repeatedModels=repeated_models,
-                           counterModel=counter_model,
-                           port=port,
-                           web_status=web_status, # 传递web状态
-                           segment_duration=segment_duration,
-                           storage_info=storage_info,
-                           up_directory=setting.get('up_directory', '未配置')) # 传递上传目录
+    return {
+        "port": port,
+        "web_status": web_status,
+        "storage_info": storage_info,
+        "repeatedModels": repeated_models,
+        "hilos_count": len(hilos_snapshot),
+        "recording_info": recording_info,
+        "counterModel": counter_model,
+        "segment_duration": segment_duration,
+        "up_directory": setting.get('up_directory', '未配置')
+    }
 
-@app.route('/edit_wanted', methods=['GET', 'POST'])
+@app.route('/api/status')
+def api_status():
+    """返回JSON格式的系统状态"""
+    return jsonify(get_system_status_data())
+
+@app.route('/')
+def index():
+    """主页，显示当前状态"""
+    data = get_system_status_data()
+    return render_template('index.html', **data)
+
+@app.route('/edit_wanted', methods=['GET'])
 def edit_wanted():
     """查看和编辑wanted.txt文件"""
-    if request.method == 'POST':
-        # 保存更新后的内容到wanted.txt
-        atomic_write_text(setting['wishlist'], request.form.get('content', ''))
-        atomic_write_text(setting['wishlist'], request.form.get('content', ''))
-        return redirect(url_for('index'))
-    
-    # 读取wanted.txt内容
-    try:
-        with open(setting['wishlist'], 'r', encoding='utf-8') as f:
-            content = f.read()
-    except FileNotFoundError:
-        content = ""
-    try:
-        with open(setting['wishlist'], 'r', encoding='utf-8') as f:
-            content = f.read()
-    except FileNotFoundError:
-        content = ""
-    
-    return render_template('edit_wanted.html', content=content)
+    return render_template('edit_wanted.html')
 
 # 添加停止录制路由
 @app.route('/stop_recording/<model_name>', methods=['POST'])
@@ -368,18 +354,13 @@ def stop_recording(model_name):
     with state_lock:
         recording_snapshot = list(recording)
     for modelo in recording_snapshot:  # 使用快照遍历，避免在遍历过程中修改
-    with state_lock:
-        recording_snapshot = list(recording)
-    for modelo in recording_snapshot:  # 使用快照遍历，避免在遍历过程中修改
         if modelo.modelo == model_name:
             modelo.stop()
             # 记录停止事件
             log_event(f'通过Web界面停止录制: {model_name}')
-            log_event(f'通过Web界面停止录制: {model_name}')
             break
     return redirect(url_for('index'))
 
-# 添加设置分段录制时长的路由
 @app.route('/set_segment_duration', methods=['POST'])
 def set_segment_duration():
     """设置分段录制时长"""
@@ -389,15 +370,78 @@ def set_segment_duration():
             with state_lock:
                 app_state["segment_duration"] = new_duration
                 app_state["segment_duration_overridden"] = True
-            with state_lock:
-                app_state["segment_duration"] = new_duration
-                app_state["segment_duration_overridden"] = True
             # 记录到日志
-            log_event(f'分段录制时长已更新为: {new_duration}分钟')
             log_event(f'分段录制时长已更新为: {new_duration}分钟')
     except (ValueError, KeyError):
         pass  # 忽略无效输入
     return redirect(url_for('index'))
+
+@app.route('/api/wanted', methods=['GET'])
+def get_wanted():
+    """获取wanted列表"""
+    try:
+        if not os.path.exists(setting['wishlist']):
+             return jsonify({'wanted': []})
+        with open(setting['wishlist'], 'r', encoding='utf-8') as f:
+            wanted = [line.strip() for line in f if line.strip()]
+        return jsonify({'wanted': wanted})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/wanted', methods=['POST'])
+def add_wanted():
+    """添加模特到wanted列表"""
+    data = request.json
+    if not data or 'model' not in data:
+        return jsonify({'error': 'Invalid data'}), 400
+    
+    new_model = data['model'].strip().lower()
+    if not new_model:
+        return jsonify({'error': 'Empty model name'}), 400
+        
+    try:
+        current_wanted = []
+        if os.path.exists(setting['wishlist']):
+            with open(setting['wishlist'], 'r', encoding='utf-8') as f:
+                current_wanted = [line.strip() for line in f if line.strip()]
+        
+        if new_model in [m.lower() for m in current_wanted]:
+            return jsonify({'error': 'Model already exists'}), 409
+            
+        current_wanted.append(new_model)
+        atomic_write_text(setting['wishlist'], '\n'.join(current_wanted))
+        log_event(f'API添加模特: {new_model}')
+        return jsonify({'success': True, 'model': new_model})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/wanted', methods=['DELETE'])
+def delete_wanted():
+    """从wanted列表删除模特"""
+    data = request.json
+    if not data or 'model' not in data:
+        return jsonify({'error': 'Invalid data'}), 400
+        
+    target = data['model'].strip().lower()
+    
+    try:
+        if not os.path.exists(setting['wishlist']):
+            return jsonify({'error': 'List empty'}), 404
+            
+        with open(setting['wishlist'], 'r', encoding='utf-8') as f:
+            current_wanted = [line.strip() for line in f if line.strip()]
+        
+        original_len = len(current_wanted)
+        new_wanted = [m for m in current_wanted if m.lower() != target]
+        
+        if len(new_wanted) < original_len:
+            atomic_write_text(setting['wishlist'], '\n'.join(new_wanted))
+            log_event(f'API删除模特: {target}')
+            return jsonify({'success': True})
+        else:
+            return jsonify({'error': 'Model not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # 添加启动web服务器的函数
 def start_web_server():
@@ -418,16 +462,10 @@ def start_web_server():
                 app_state["port"] = port  # 更新当前使用的端口
                 # 更新web状态信息
                 app_state["web_status"] = f"Web服务器正在启动，端口: {port}..."
-            with state_lock:
-                app_state["port"] = port  # 更新当前使用的端口
-                # 更新web状态信息
-                app_state["web_status"] = f"Web服务器正在启动，端口: {port}..."
             print(f"\n[Web服务] 正在端口 {port} 上启动Web界面...")
             
             # 先检查端口是否被占用
             import socket
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                result = sock.connect_ex(('127.0.0.1', port))
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 result = sock.connect_ex(('127.0.0.1', port))
             
@@ -440,13 +478,7 @@ def start_web_server():
             with state_lock:
                 app_state["web_status"] = success_msg
             log_event(success_msg)
-            success_msg = f"[Web服务] Web界面运行中: http://localhost:{port} 或 http://服务器IP:{port}"
-            print(success_msg)
-            with state_lock:
-                app_state["web_status"] = success_msg
-            log_event(success_msg)
             app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
-            return  # app.run 阻塞，正常情况下不会返回
             return  # app.run 阻塞，正常情况下不会返回
         except Exception as e:
             # 捕获所有异常，不仅仅是OSError
@@ -457,7 +489,8 @@ def start_web_server():
             
             # 记录到日志文件
             log_event(f'Web服务启动错误: 端口={port}, 错误类型={error_type}, 错误信息={error_msg}')
-            log_event(f'Web服务启动错误: 端口={port}, 错误类型={error_type}, 错误信息={error_msg}')
+            
+            port += 1
             
             port += 1
             if port > max_port:
@@ -476,179 +509,758 @@ def start_web_server():
 def create_templates():
     """创建HTML模板"""
     index_html = """<!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-    <title>StripchatRecorder 状态</title>
     <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="15"> <!-- Refresh interval 15 seconds -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StripchatRecorder 控制台</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f4f7f6; color: #333; }
-        .container { max-width: 1000px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-        .card { background-color: #fff; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); padding: 20px; }
-        .card h2 { margin-top: 0; color: #0056b3; border-bottom: 2px solid #eee; padding-bottom: 10px; font-size: 1.2em; }
-        .card h3 { margin-top: 15px; margin-bottom: 10px; color: #333; font-size: 1.1em; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 0.95em; }
-        th { background-color: #f8f9fa; color: #555; font-weight: 600; }
-        td { vertical-align: middle; }
-        .button { display: inline-block; padding: 10px 18px; background-color: #28a745; 
-                 color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; border: none; cursor: pointer; font-size: 1em; }
-        .button:hover { background-color: #218838; }
-        .btn-edit { background-color: #007bff; }
-        .btn-edit:hover { background-color: #0056b3; }
-        .btn-stop { background-color: #dc3545; color: white; padding: 6px 12px; 
-                  border: none; cursor: pointer; border-radius: 4px; font-size: 0.9em; }
-        .btn-stop:hover { background-color: #c82333; }
-        .info, .warning { border-left-width: 5px; border-left-style: solid; padding: 12px 15px; margin: 15px 0; border-radius: 4px; }
-        .info { background-color: #e7f3fe; border-left-color: #2196F3; }
-        .warning { background-color: #fff3cd; border-left-color: #ffc107; }
-        .danger { background-color: #f8d7da; border-left-color: #dc3545; }
-        .progress-bar { height: 22px; background-color: #e9ecef; border-radius: 5px; overflow: hidden; margin-top: 5px; }
-        .progress { height: 100%; background-color: #28a745; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8em; font-weight: bold; }
-        .progress.warning { background-color: #ffc107; color: #333; }
-        .progress.danger { background-color: #dc3545; }
-        .settings-form { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-top: 20px; border: 1px solid #ddd; }
-        .settings-form label { margin-right: 10px; }
-        .settings-form input[type="number"] { padding: 8px; width: 80px; border: 1px solid #ccc; border-radius: 4px; }
-        .settings-form button { padding: 8px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin-left: 10px; }
-        .settings-form button:hover { background-color: #0056b3; }
-        .full-width { grid-column: 1 / -1; } /* Span across all columns */
-        .overview-item { margin-bottom: 8px; font-size: 0.95em; }
-        .overview-item strong { color: #0056b3; }
-        code { background-color: #e9ecef; padding: 2px 5px; border-radius: 3px; font-family: monospace; }
-    </style>
-    <script>
-        function confirmStop(modelName) {
-            return confirm('确定要停止录制模特 "' + modelName + '" 吗？');
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg-dark: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --border: rgba(148, 163, 184, 0.1);
         }
-    </script>
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.15) 0px, transparent 50%);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-2px);
+        }
+
+        h2 {
+            margin-top: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-main);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 16px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 0.95rem;
+        }
+
+        .stat-label {
+            color: var(--text-sub);
+        }
+
+        .stat-value {
+            font-weight: 600;
+            color: var(--text-main);
+        }
+        
+        code {
+            background: rgba(0,0,0,0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Menlo', monospace;
+            font-size: 0.9em;
+            color: #e2e8f0;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+        .btn-primary:hover { background: var(--primary-hover); }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+        .btn-danger:hover {
+            background: rgba(239, 68, 68, 0.2);
+        }
+
+        /* Forms */
+        input[type="number"] {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid var(--border);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            width: 80px;
+        }
+        
+        input[type="number"]:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        /* Progress Bar */
+        .progress-bg {
+            background: rgba(255,255,255,0.1);
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: var(--success);
+            transition: width 0.3s ease;
+        }
+        
+        .progress-fill.warning { background: var(--warning); }
+        .progress-fill.danger { background: var(--danger); }
+
+        /* Table */
+        .table-container {
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        
+        th {
+            text-align: left;
+            color: var(--text-sub);
+            padding: 12px 16px;
+            font-weight: 500;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        td {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-main);
+        }
+        
+        tr:last-child td { border-bottom: none; }
+        
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+        
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+            margin-right: 6px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-sub);
+        }
+
+    </style>
 </head>
 <body>
     <div class="container">
-        <div class="card full-width">
-            <h2>StripchatRecorder 状态监控</h2>
-        </div>
-
-        <div class="card">
-            <h2>概览</h2>
-            <div class="overview-item">Web 界面端口: <strong>{{ port }}</strong></div>
-            <div class="overview-item">Web 服务状态: <strong>{{ web_status }}</strong></div>
-            <div class="overview-item">上传目录 (up): <code>{{ up_directory }}</code></div>
-             {% if repeatedModels %}
-            <div class="warning overview-item">
-                重复模特: {{ repeatedModels|join(', ') }}
+        <!-- Header -->
+        <div class="card full-width" style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <h1 style="margin: 0; font-size: 1.5rem; background: linear-gradient(to right, #818cf8, #34d399); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                    StripchatRecorder Monitor
+                </h1>
+                <span id="web-status-badge" class="status-badge">
+                    <span class="status-dot"></span> <span id="web-status-text">Running</span>
+                </span>
             </div>
-            {% endif %}
+            <div style="text-align: right;">
+                <span id="clock" style="color: var(--text-sub); font-family: monospace;">--:--:--</span>
+            </div>
         </div>
 
+        <!-- Overview -->
         <div class="card">
-            <h2>统计</h2>
-            <div class="overview-item">活跃检测线程: <strong>{{ hilos|length }}</strong></div>
-            <div class="overview-item">正在录制模特: <strong>{{ recording_info|length }}</strong></div>
-            <div class="overview-item">Wanted 列表总数: <strong>{{ counterModel }}</strong></div>
-            <a href="/edit_wanted" class="button btn-edit">编辑 Wanted 列表</a>
+            <h2>运行概览</h2>
+            <div class="stat-item">
+                <span class="stat-label">Web 端口</span>
+                <span class="stat-value" id="port">{{ port }}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">上传目录</span>
+                <code id="up-dir">{{ up_directory }}</code>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">重复模特</span>
+                <span class="stat-value" id="repeated-models" style="color: var(--warning)">-</span>
+            </div>
         </div>
 
+        <!-- Stats -->
+        <div class="card">
+            <h2>统计数据</h2>
+            <div class="stat-item">
+                <span class="stat-label">活跃检测线程</span>
+                <span class="stat-value" id="hilos-count">-</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">正在录制</span>
+                <span class="stat-value" id="recording-count">-</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Wanted 列表</span>
+                <span class="stat-value" id="wanted-count">-</span>
+            </div>
+            <a href="/edit_wanted" class="btn btn-primary" style="width: 100%; margin-top: 10px; box-sizing: border-box;">编辑 Wanted 列表</a>
+        </div>
+
+        <!-- Storage -->
+        <div class="card">
+            <h2>本地存储</h2>
+            <div class="stat-item">
+                <span class="stat-label">已使用 / 总容量</span>
+                <span class="stat-value"><span id="storage-used">-</span> / <span id="storage-total">-</span> GB</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">剩余空间</span>
+                <span class="stat-value" id="storage-free">-</span> GB
+            </div>
+            <div style="margin-top: 10px;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px;">
+                    <span class="stat-label">使用率</span>
+                    <span class="stat-value" id="storage-percent">-</span>
+                </div>
+                <div class="progress-bg">
+                    <div id="storage-bar" class="progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings -->
         <div class="card">
             <h2>分段录制设置</h2>
-            <form action="/set_segment_duration" method="post" class="settings-form">
-                <label for="duration">分段时长 (分钟):</label>
+            <form action="/set_segment_duration" method="post" style="display: flex; gap: 10px; align-items: center;">
+                <label for="duration" class="stat-label">时长(分钟):</label>
                 <input type="number" id="duration" name="duration" value="{{ segment_duration }}" min="1" required>
-                <button type="submit">保存</button>
+                <button type="submit" class="btn btn-primary">保存</button>
             </form>
-            <p style="margin-top: 10px; font-size: 0.9em;">当前: 每 <strong>{{ segment_duration }}</strong> 分钟自动分段。</p>
+            <p style="margin-top: 12px; font-size: 0.85rem; color: var(--text-sub);">
+                当前: 每 <strong id="current-segment" style="color: var(--text-main)">{{ segment_duration }}</strong> 分钟自动分段。
+            </p>
         </div>
 
-        <div class="card">
-            <h2>存储空间 (本地)</h2>
-            <table>
-                <tr><th>总容量</th><td>{{ storage_info.local.total }} GB</td></tr>
-                <tr><th>已使用</th><td>{{ storage_info.local.used }} GB</td></tr>
-                <tr><th>剩   余</th><td>{{ storage_info.local.free }} GB</td></tr>
-                <tr>
-                    <th>使用率</th>
-                    <td>
-                        <div class="progress-bar">
-                            <div class="progress {% if storage_info.local.percent_used > 90 %}danger{% elif storage_info.local.percent_used > 70 %}warning{% endif %}" 
-                                 style="width: {{ storage_info.local.percent_used }}%">{{ storage_info.local.percent_used }}%</div>
-                        </div>
-                    </td>
-                </tr>
-            </table>
-        </div>
-        
-        {% if recording_info %}
+        <!-- Recording List -->
         <div class="card full-width">
-            <h2>当前正在录制的模特 ({{ recording_info|length }})</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>模特名</th>
-                        <th>当前文件名</th>
-                        <th>已录制时长</th>
-                        <th>操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                {% for model in recording_info %}
-                <tr>
-                    <td>{{ model.name }}</td>
-                    <td>{{ model.file }}</td>
-                    <td>{{ model.elapsed_time }}</td>
-                    <td>
-                        <form action="/stop_recording/{{ model.name }}" method="post" style="display: inline;">
-                            <button type="submit" class="btn-stop" onclick="return confirmStop('{{ model.name }}');">停止录制</button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table>
+            <h2>正在录制 (<span id="list-count">0</span>)</h2>
+            <div class="table-container">
+                <table id="recording-table">
+                    <thead>
+                        <tr>
+                            <th>模特名</th>
+                            <th>文件名</th>
+                            <th>大小</th>
+                            <th>已录制时长</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recording-tbody">
+                        <!-- Content injected by JS -->
+                    </tbody>
+                </table>
+                <div id="empty-state" class="empty-state" style="display: none;">
+                    当前没有模特正在录制
+                </div>
+            </div>
         </div>
-        {% else %}
-        <div class="card full-width info">
-            <p>当前没有模特正在录制</p>
-        </div>
-        {% endif %}
-        
     </div>
+
+    <script>
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').innerText = now.toLocaleTimeString();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        async function fetchStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                // Update basic stats
+                document.getElementById('web-status-text').innerText = data.web_status || 'Running';
+                document.getElementById('port').innerText = data.port;
+                document.getElementById('up-dir').innerText = data.up_directory;
+                
+                const repeated = data.repeatedModels.length > 0 ? data.repeatedModels.join(', ') : '无';
+                document.getElementById('repeated-models').innerText = repeated;
+                
+                document.getElementById('hilos-count').innerText = data.hilos_count;
+                document.getElementById('recording-count').innerText = data.recording_info.length;
+                document.getElementById('list-count').innerText = data.recording_info.length;
+                document.getElementById('wanted-count').innerText = data.counterModel;
+                
+                // Update storage
+                const s = data.storage_info.local;
+                if (s) {
+                    document.getElementById('storage-used').innerText = s.used;
+                    document.getElementById('storage-total').innerText = s.total;
+                    document.getElementById('storage-free').innerText = s.free;
+                    document.getElementById('storage-percent').innerText = s.percent_used + '%';
+                    
+                    const bar = document.getElementById('storage-bar');
+                    bar.style.width = s.percent_used + '%';
+                    bar.className = 'progress-fill';
+                    if (s.percent_used > 90) bar.classList.add('danger');
+                    else if (s.percent_used > 70) bar.classList.add('warning');
+                }
+
+                // Update settings text
+                document.getElementById('current-segment').innerText = data.segment_duration;
+
+                // Update table
+                const tbody = document.getElementById('recording-tbody');
+                const emptyState = document.getElementById('empty-state');
+                const table = document.getElementById('recording-table');
+
+                if (data.recording_info.length === 0) {
+                    table.style.display = 'none';
+                    emptyState.style.display = 'block';
+                } else {
+                    table.style.display = 'table';
+                    emptyState.style.display = 'none';
+                    
+                    // Rebuild table rows
+                    let html = '';
+                    data.recording_info.forEach(model => {
+                        html += `
+                            <tr>
+                                <td>
+                                    <div style="font-weight: 500;">${model.name}</div>
+                                </td>
+                                <td style="color: var(--text-sub); font-size: 0.9em;">
+                                    ${model.file}
+                                </td>
+                                <td><span style="font-family: monospace;">${model.size}</span></td>
+                                <td>
+                                    <span class="status-badge">
+                                        <span class="status-dot"></span>
+                                        ${model.elapsed_time}
+                                    </span>
+                                </td>
+                                <td>
+                                    <form action="/stop_recording/${model.name}" method="post" onsubmit="return confirm('确定停止 ${model.name}?');">
+                                        <button type="submit" class="btn btn-danger" style="padding: 4px 10px; font-size: 0.8rem;">停止</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    tbody.innerHTML = html;
+                }
+
+            } catch (err) {
+                console.error('Update failed', err);
+            }
+        }
+
+        // Poll every 2 seconds
+        setInterval(fetchStatus, 2000);
+        fetchStatus(); // Initial load
+    </script>
 </body>
 </html>"""
 
     edit_html = """<!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-    <title>编辑 Wanted 列表</title>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理 Wanted 列表</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f4f7f6; color: #333; }
-        .container { max-width: 900px; margin: 20px auto; background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        h1 { color: #0056b3; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-        textarea { width: 100%; height: 400px; margin-top: 20px; padding: 15px; border: 1px solid #ccc; border-radius: 5px; font-size: 1em; box-sizing: border-box; }
-        .button { display: inline-block; padding: 12px 20px; background-color: #28a745; 
-                 color: white; text-decoration: none; border-radius: 5px; margin-top: 15px;
-                 border: none; cursor: pointer; font-size: 1em; transition: background-color 0.2s ease; }
-        .button:hover { background-color: #218838; }
-        .cancel { background-color: #6c757d; margin-left: 10px; }
-        .cancel:hover { background-color: #5a6268; }
-        .button-group { margin-top: 20px; }
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg-dark: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
+            --border: rgba(148, 163, 184, 0.1);
+            --danger: #ef4444;
+            --success: #10b981;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+        .back-btn {
+            color: var(--text-sub);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.9rem;
+            transition: color 0.2s;
+        }
+        .back-btn:hover { color: var(--text-main); }
+        
+        .add-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 30px;
+            display: flex;
+            gap: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            background: rgba(0,0,0,0.2);
+            border: 1px solid var(--border);
+            color: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+            font-size: 0.95rem;
+        }
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+        .btn-primary:hover { background: var(--primary-hover); transform: translateY(-1px); }
+        .btn-primary:active { transform: translateY(0); }
+        
+        /* Grid Layout */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        
+        .model-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: transform 0.2s, border-color 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+        .model-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(99, 102, 241, 0.3);
+        }
+        
+        .model-name {
+            font-weight: 600;
+            font-size: 1.05rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .delete-btn {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .delete-btn:hover {
+            background: var(--danger);
+            color: white;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 24px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s;
+            z-index: 100;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.success { background: var(--success); }
+        .toast.error { background: var(--danger); }
+        
+        .loading {
+            text-align: center;
+            color: var(--text-sub);
+            grid-column: 1 / -1;
+            padding: 40px;
+        }
+        
+        /* Add status indicator */
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--text-sub);
+            display: inline-block;
+            margin-right: 6px;
+        }
+        .online .status-dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
+
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>编辑 Wanted 列表</h1>
-        <p>每行输入一个模特名称。保存后将自动重新加载列表。</p>
-        
-        <form method="post">
-            <textarea name="content" placeholder="在此输入模特名...">{{ content }}</textarea>
-            <div class="button-group">
-                <button type="submit" class="button">保存更改</button>
-                <a href="/" class="button cancel">取消</a>
+        <div class="header">
+            <div>
+                <a href="/" class="back-btn">← 返回仪表盘</a>
+                <h1 style="margin: 10px 0 0 0;">管理 Wanted 列表</h1>
             </div>
-        </form>
+            <div style="color: var(--text-sub);">
+                共 <span id="total-count" style="color: var(--text-main); font-weight: bold;">0</span> 个模特
+            </div>
+        </div>
+
+        <div class="add-card">
+            <input type="text" id="model-input" placeholder="输入模特名称 (例如: nana_wilson)" autocomplete="off">
+            <button class="btn btn-primary" onclick="addModel()">+ 添加模特</button>
+        </div>
+
+        <div id="model-grid" class="grid">
+            <div class="loading">加载列表...</div>
+        </div>
     </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        // Store models locally to avoid rapid fetching
+        let models = [];
+
+        async function fetchModels() {
+            try {
+                const res = await fetch('/api/wanted');
+                const data = await res.json();
+                if (data.wanted) {
+                    models = data.wanted;
+                    render();
+                }
+            } catch (e) {
+                showToast('加载列表失败', 'error');
+            }
+        }
+
+        async function addModel() {
+            const input = document.getElementById('model-input');
+            const name = input.value.trim();
+            if (!name) return;
+
+            try {
+                const res = await fetch('/api/wanted', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({model: name})
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    models.push(data.model);
+                    render();
+                    input.value = '';
+                    showToast(`已添加: ${data.model}`, 'success');
+                } else {
+                    showToast(data.error || '添加失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络请求失败', 'error');
+            }
+        }
+
+        async function deleteModel(name) {
+            if (!confirm(`确定要移除 ${name} 吗?`)) return;
+
+            try {
+                const res = await fetch('/api/wanted', {
+                    method: 'DELETE',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({model: name})
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    models = models.filter(m => m.toLowerCase() !== name.toLowerCase());
+                    render();
+                    showToast(`已移除: ${name}`, 'success');
+                } else {
+                    showToast(data.error || '删除失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络请求失败', 'error');
+            }
+        }
+
+        function render() {
+            const grid = document.getElementById('model-grid');
+            document.getElementById('total-count').innerText = models.length;
+            
+            if (models.length === 0) {
+                grid.innerHTML = '<div class="loading">列表为空</div>';
+                return;
+            }
+
+            grid.innerHTML = models.map(name => `
+                <div class="model-card">
+                    <div style="display: flex; align-items: center;">
+                        <span class="status-dot"></span>
+                        <span class="model-name" title="${name}">${name}</span>
+                    </div>
+                    <button class="delete-btn" onclick="deleteModel('${name}')" title="移除">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+                        </svg>
+                    </button>
+                </div>
+            `).join('');
+            
+            // Add shortcut for Enter key
+            document.getElementById('model-input').onkeypress = function(e) {
+                if (e.key === 'Enter') addModel();
+            };
+        }
+
+        function showToast(msg, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.className = `toast ${type} show`;
+            toast.innerText = msg;
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        fetchModels();
+    </script>
 </body>
 </html>"""
+
 
     # 写入模板文件
     templates_dir = os.path.join(mainDir, 'templates')
@@ -660,9 +1272,6 @@ def create_templates():
         f.write(edit_html)
 
 def firstRun():
-    script = os.path.join(mainDir, 't.sh')
-    if os.path.isfile(script):
-        subprocess.call(['bash', script], cwd=mainDir)
     script = os.path.join(mainDir, 't.sh')
     if os.path.isfile(script):
         subprocess.call(['bash', script], cwd=mainDir)
@@ -709,17 +1318,7 @@ def readConfig():
     
     try:
         segment_duration = int(Config.get('settings', 'segmentDuration', fallback='0'))
-        segment_duration = int(Config.get('settings', 'segmentDuration', fallback='0'))
         if segment_duration > 0:
-            with state_lock:
-                if not app_state.get("segment_duration_overridden", False):
-                    app_state["segment_duration"] = segment_duration
-    except ValueError:
-        pass  # 值无效则忽略，沿用当前设置
-        
-    log_event(f'配置加载完毕.')
-
-    os.makedirs(setting["save_directory"], exist_ok=True)
             with state_lock:
                 if not app_state.get("segment_duration_overridden", False):
                     app_state["segment_duration"] = segment_duration
@@ -735,17 +1334,12 @@ def readConfig():
     up_dir = os.path.join(captures_parent_dir, 'up')
     setting['up_directory'] = up_dir  # 保存到设置中方便其他函数使用
     os.makedirs(up_dir, exist_ok=True)
-    os.makedirs(up_dir, exist_ok=True)
 
 
 def process_existing_captures():
     """处理已经存在于captures目录中的录制文件，将它们移动到up目录"""
     import glob
     
-    captures_dir = setting.get('save_directory')
-    up_dir = setting.get('up_directory')  # 使用保存在设置中的up目录路径
-    if not captures_dir or not os.path.isdir(captures_dir) or not up_dir:
-        return
     captures_dir = setting.get('save_directory')
     up_dir = setting.get('up_directory')  # 使用保存在设置中的up目录路径
     if not captures_dir or not os.path.isdir(captures_dir) or not up_dir:
@@ -763,11 +1357,9 @@ def process_existing_captures():
         for file_path in mp4_files:
             # 检查文件是否大于1KB
             if os.path.getsize(file_path) > MIN_FILE_SIZE_BYTES:
-            if os.path.getsize(file_path) > MIN_FILE_SIZE_BYTES:
                 try:
                     # 创建模特名称对应的up子目录
                     model_up_dir = os.path.join(up_dir, model_dir)
-                    os.makedirs(model_up_dir, exist_ok=True)
                     os.makedirs(model_up_dir, exist_ok=True)
                     
                     filename = os.path.basename(file_path)
@@ -777,9 +1369,7 @@ def process_existing_captures():
                     moved_count += 1
                     # 记录日志
                     log_event(f'已存在的文件已移动到上传文件夹: {dest_path}')
-                    log_event(f'已存在的文件已移动到上传文件夹: {dest_path}')
                 except Exception as e:
-                    log_event(f'移动已存在文件时出错: {file_path} -> {e}')
                     log_event(f'移动已存在文件时出错: {file_path} -> {e}')
     
     if moved_count > 0:
@@ -788,25 +1378,13 @@ def process_existing_captures():
 
 def postProcess():
     log_event('[线程] 后处理线程 postProcess 已启动。')
-    log_event('[线程] 后处理线程 postProcess 已启动。')
 
     while True:
         try:
             if processingQueue is None:
                 time.sleep(1)
                 continue
-            if processingQueue is None:
-                time.sleep(1)
-                continue
 
-            try:
-                parameters = processingQueue.get(timeout=1)
-            except queue.Empty:
-                continue
-
-            try:
-                model = parameters.get('model', '未知模型')
-                path = parameters.get('path')
             try:
                 parameters = processingQueue.get(timeout=1)
             except queue.Empty:
@@ -823,21 +1401,9 @@ def postProcess():
                 filename = os.path.basename(path)
                 directory = os.path.dirname(path)
                 file_base = os.path.splitext(filename)[0]
-                if not path or not os.path.isfile(path):
-                    log_event(f'[错误][postProcess] 从队列获取的任务无效或文件不存在: {parameters}')
-                    continue
-
-                filename = os.path.basename(path)
-                directory = os.path.dirname(path)
-                file_base = os.path.splitext(filename)[0]
 
                 log_event(f'[postProcess] 开始处理文件: {filename} (来自队列)')
-                log_event(f'[postProcess] 开始处理文件: {filename} (来自队列)')
 
-                post_cmd_str = (setting.get('postProcessingCommand') or '').strip()
-                if post_cmd_str:
-                    cmd_list = shlex.split(post_cmd_str) + [path, filename, directory, model, file_base, 'cam4']
-                    log_event(f'[postProcess] 准备调用命令: {" ".join(cmd_list)}')
                 post_cmd_str = (setting.get('postProcessingCommand') or '').strip()
                 if post_cmd_str:
                     cmd_list = shlex.split(post_cmd_str) + [path, filename, directory, model, file_base, 'cam4']
@@ -875,41 +1441,9 @@ def postProcess():
                     log_event(f'[警告][postProcess] 未配置 postProcessingCommand，跳过后处理步骤 for {filename}')
             finally:
                 processingQueue.task_done()
-                    try:
-                        result = subprocess.run(
-                            cmd_list,
-                            check=False,
-                            capture_output=True,
-                            text=True,
-                            timeout=timeout_seconds,
-                            cwd=mainDir,
-                        )
-                        if result.returncode == 0:
-                            log_event(f'[postProcess] 命令成功完成 (退出码 0): {filename}')
-                        else:
-                            log_event(
-                                f'[错误][postProcess] 命令执行失败 (退出码 {result.returncode}) for {filename}:\n'
-                                f'  命令: {" ".join(cmd_list)}\n'
-                                f'  Stdout: {result.stdout.strip()}\n'
-                                f'  Stderr: {result.stderr.strip()}'
-                            )
-                    except subprocess.TimeoutExpired:
-                        log_event(f'[错误][postProcess] 命令执行超时 ({timeout_seconds}秒): {" ".join(cmd_list)} for {filename}')
-                    except FileNotFoundError:
-                        log_event(f'[错误][postProcess] 命令未找到 (请检查路径): {cmd_list[0]} for {filename}')
-                    except Exception as e:
-                        log_event(
-                            f'[错误][postProcess] 调用命令时发生未知异常 for {filename}: {e}\n'
-                            f'  命令: {" ".join(cmd_list)}'
-                        )
-                else:
-                    log_event(f'[警告][postProcess] 未配置 postProcessingCommand，跳过后处理步骤 for {filename}')
-            finally:
-                processingQueue.task_done()
         except Exception as e:
             log_event(f'[致命错误][postProcess] 后处理线程遇到意外错误: {e}')
             time.sleep(5)
-            log_event(f'[致命错误][postProcess] 后处理线程遇到意外错误: {e}')
             time.sleep(5)
 
 
@@ -1457,16 +1991,11 @@ class Modelo(threading.Thread):
             
             # 检查响应类型
             if isinstance(data, list):
-            if isinstance(data, list):
                 # 如果返回的是列表，说明可能是错误响应
-                log_event(f'API返回列表而不是预期的字典: {self.modelo}')
                 log_event(f'API返回列表而不是预期的字典: {self.modelo}')
                 return False
                 
             hls_url = ''
-            if 'cam' in data.keys():
-                if {'isCamAvailable', 'streamName'} <= data['cam'].keys():
-                    if data['cam']['isCamAvailable'] and data['cam']['streamName']:
             if 'cam' in data.keys():
                 if {'isCamAvailable', 'streamName'} <= data['cam'].keys():
                     if data['cam']['isCamAvailable'] and data['cam']['streamName']:
@@ -1484,40 +2013,8 @@ class Modelo(threading.Thread):
                            if not hls_url: # Should not happen if we use edge-hls fallback
                                log_event(f'无 HLS 地址，尝试使用 Profile URL: {self.modelo}')
                                return f'https://stripchat.com/{self.modelo}'
-                        if 'viewServers' in data['cam'] and 'flashphoner-hls' in data['cam']['viewServers']:
-                           hls_url = f'https://{data["cam"]["viewServers"]["flashphoner-hls"]}/hls/{data["cam"]["streamName"]}/playlist.m3u8'
-                        elif 'hlsUrl' in data['cam']: # 备选方案: 直接使用 hlsUrl
-                           hls_url = data['cam']['hlsUrl']
-                        else: 
-                           # 新备选: edge-hls / master playlist (verified 2024-12)
-                           hls_url = f'https://edge-hls.doppiocdn.live/hls/{data["cam"]["streamName"]}/master/{data["cam"]["streamName"]}_auto.m3u8'
-                           
-                           # 如果没有 viewServers 和 hlsUrl，说明是 WebRTC 或受保护流。
-                           # 返回 Profile URL 让 Streamlink 插件尝试处理 (需配合正确 Headers)
-                           if not hls_url: # Should not happen if we use edge-hls fallback
-                               log_event(f'无 HLS 地址，尝试使用 Profile URL: {self.modelo}')
-                               return f'https://stripchat.com/{self.modelo}'
 
             if len(hls_url):
-                # 验证URL是否有效 (带 Cookies)
-                try:
-                    # 使用 Session (含 Cookies) 发送 HEAD 请求
-                    with self.http.head(hls_url, timeout=5, allow_redirects=True) as r:
-                         if r.status_code >= 400:
-                             log_event(f'HLS URL无效 (Status {r.status_code}): {self.modelo} - {hls_url}')
-                             # 如果无效，以前是回退到 Profile URL，但现在 Profile URL 也不行 (NoPlugin)
-                             # 只有当 Streamlink 有 stripchat 插件时才回退到 Profile。
-                             # 现在我们相信 cookies 能解决 403，所以这里的 403 可能是 cookies 失效。
-                             # 但如果用户提供了 cookies，我们应该尝试用 cookies 去录制 HLS。
-                             # 可是如果 HEAD 都 403，streamlink 可能也会 403。
-                             # 无论如何，返回 HLS URL 让 Streamlink 试一把（它也会带 cookies）。
-                             pass # 忽略 403，让 run() 里的 streamlink 带 cookie 再试一次
-                             
-                except Exception as e:
-                    log_event(f'验证HLS URL失败: {self.modelo} - {e}')
-                    # 网络错误可能导致误判，保守返回 URL
-                
-                return hls_url
                 # 验证URL是否有效 (带 Cookies)
                 try:
                     # 使用 Session (含 Cookies) 发送 HEAD 请求
@@ -1631,26 +2128,6 @@ class AddModelsThread(threading.Thread):
             model = name.lower()
             if model in seen:
                 repeated.append(model)
-        wishlist_path = setting.get('wishlist')
-        if not wishlist_path:
-            return
-
-        try:
-            with open(wishlist_path, 'r', encoding='utf-8', errors='ignore') as f:
-                lines = f.read().splitlines()
-        except Exception as e:
-            log_event(f'读取 wanted 列表失败: {wishlist_path} - {e}')
-            return
-
-        raw_models = [line.strip() for line in lines if line.strip()]
-
-        seen = set()
-        unique_models = []
-        repeated = []
-        for name in raw_models:
-            model = name.lower()
-            if model in seen:
-                repeated.append(model)
             else:
                 seen.add(model)
                 unique_models.append(model)
@@ -1667,38 +2144,7 @@ class AddModelsThread(threading.Thread):
             active_models = {t.modelo for t in hilos} | {t.modelo for t in recording}
             for model in unique_models:
                 if model not in active_models:
-                seen.add(model)
-                unique_models.append(model)
-
-        self.wanted = unique_models
-        self.repeatedModels = repeated
-        self.counterModel = len(unique_models)
-
-        # 需要启动的线程与需要停止的录制线程（避免持锁时 start/stop）
-        threads_to_start = []
-        threads_to_stop = []
-
-        with state_lock:
-            active_models = {t.modelo for t in hilos} | {t.modelo for t in recording}
-            for model in unique_models:
-                if model not in active_models:
                     thread = Modelo(model)
-                    hilos.append(thread)  # 先 append 再 start，避免竞态导致同时出现在 hilos/recording
-                    threads_to_start.append(thread)
-                    active_models.add(model)
-
-            for hilo in recording:
-                if hilo.modelo not in seen:
-                    threads_to_stop.append(hilo)
-
-            # 更新应用状态
-            app_state["repeatedModels"] = self.repeatedModels
-            app_state["counterModel"] = self.counterModel
-
-        for thread in threads_to_start:
-            thread.start()
-        for thread in threads_to_stop:
-            thread.stop()
                     hilos.append(thread)  # 先 append 再 start，避免竞态导致同时出现在 hilos/recording
                     threads_to_start.append(thread)
                     active_models.add(model)
@@ -1754,11 +2200,6 @@ if __name__ == '__main__':
                     hilos_len = len(hilos)
                     recording_snapshot = list(recording)
                 print(f"[Web服务状态] {web_status}")
-                with state_lock:
-                    web_status = app_state.get('web_status', '')
-                    hilos_len = len(hilos)
-                    recording_snapshot = list(recording)
-                print(f"[Web服务状态] {web_status}")
                 print("=" * 50)
                 
                 if len(addModelsThread.repeatedModels): print(
@@ -1767,10 +2208,7 @@ if __name__ == '__main__':
                 print(
                     f'{hilos_len:02d} alive Threads (1 Thread per non-recording model), cleaning dead/not-online Threads in {cleaningThread.interval:02d} seconds, {addModelsThread.counterModel:02d} models in wanted')
                 print(f'Online Threads (models): {len(recording_snapshot):02d}')
-                    f'{hilos_len:02d} alive Threads (1 Thread per non-recording model), cleaning dead/not-online Threads in {cleaningThread.interval:02d} seconds, {addModelsThread.counterModel:02d} models in wanted')
-                print(f'Online Threads (models): {len(recording_snapshot):02d}')
                 print('The following models are being recorded:')
-                for hiloModelo in recording_snapshot: print(
                 for hiloModelo in recording_snapshot: print(
                     f'  Model: {hiloModelo.modelo}  -->  File: {os.path.basename(hiloModelo.file)}')
                 print(f'Next check in {i:02d} seconds\r', end='')
