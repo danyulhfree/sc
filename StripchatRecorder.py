@@ -15,6 +15,19 @@ import shutil
 import hashlib
 import base64
 import re
+import signal
+
+# 全局停止事件
+stop_requested = threading.Event()
+
+def signal_handler(signum, frame):
+    """处理退出信号"""
+    print(f"\n[退出] 收到信号 {signum}，正在通知所有线程退出...")
+    stop_requested.set()
+
+# 注册信号处理程序
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 from urllib.parse import urljoin
 from typing import Optional
 import hashlib
@@ -1379,7 +1392,7 @@ def process_existing_captures():
 def postProcess():
     log_event('[线程] 后处理线程 postProcess 已启动。')
 
-    while True:
+    while not stop_requested.is_set():
         try:
             if processingQueue is None:
                 time.sleep(1)
@@ -2089,7 +2102,7 @@ class CleaningThread(threading.Thread):
 
     def run(self):
         global hilos, recording
-        while True:
+        while not stop_requested.is_set():
             with state_lock:
                 hilos[:] = [hilo for hilo in hilos if hilo.is_alive() or hilo.online]
             with state_lock:
@@ -2186,13 +2199,16 @@ if __name__ == '__main__':
     web_thread.daemon = True  # 设置为守护线程，这样主程序退出时，web服务器也会退出
     web_thread.start()
     
-    while True:
+    while not stop_requested.is_set():
         try:
             readConfig()
             addModelsThread = AddModelsThread()
             addModelsThread.start()
             i = 1
+            # 使用较小的步长循环 sleep，以便更快响应停止请求
             for i in range(setting['interval'], 0, -1):
+                if stop_requested.is_set():
+                    break
                 cls()
                 # 显示Web状态信息
                 with state_lock:
@@ -2211,9 +2227,49 @@ if __name__ == '__main__':
                 print('The following models are being recorded:')
                 for hiloModelo in recording_snapshot: print(
                     f'  Model: {hiloModelo.modelo}  -->  File: {os.path.basename(hiloModelo.file)}')
-                print(f'Next check in {i:02d} seconds\r', end='')
+                print(f'Next check in {i:02d} seconds (Ctrl+C to stop)\r', end='')
                 time.sleep(1)
-            addModelsThread.join()
+            
+            # 如果收到停止请求，不需要等待 addModelsThread 完成，但最好还是 join 一下
+            addModelsThread.join(timeout=1.0) 
             del addModelsThread, i
-        except:
+
+        except KeyboardInterrupt:
+            # 这里的 KeyboardInterrupt 可能会被 signal_handler 捕获，
+            # 但如果它发生在 sleep 期间，有时还是会抛出。
+            stop_requested.set()
             break
+        except Exception as e:
+            log_event(f"Main loop error: {e}")
+            time.sleep(1)
+    
+    # === 退出清理逻辑 ===
+    print("\n[退出] 正在停止所有任务，请稍候...")
+    log_event("收到退出指令，正在关闭所有线程...")
+
+    # 1. 停止 AddModelsThread (它本身运行很快，主要是 join) - 已经在循环里 join 了
+
+    # 2. 停止所有录制线程 (Modelo) 和检测线程
+    with state_lock:
+        all_threads = hilos + recording
+    
+    for t in all_threads:
+        if isinstance(t, Modelo):
+            t.stop()
+    
+    # 3. 停止后处理线程 (通过 global event)
+    # processingQueue 里的任务如果不重要可以不等待，或者等待直到空
+    
+    print("[退出] 等待所有线程结束...")
+    
+    # 简单的等待逻辑，避免无限死等
+    wait_start = time.time()
+    while time.time() - wait_start < 10:
+        with state_lock:
+             if not any(t.is_alive() for t in hilos + recording):
+                 break
+        time.sleep(0.5)
+
+    print("[退出] 程序已结束。Bye!")
+    log_event("程序已正常退出。")
+    sys.exit(0)

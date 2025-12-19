@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StripchatRecorder 控制台</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg-dark: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --border: rgba(148, 163, 184, 0.1);
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.15) 0px, transparent 50%);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-2px);
+        }
+
+        h2 {
+            margin-top: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-main);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 16px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 0.95rem;
+        }
+
+        .stat-label {
+            color: var(--text-sub);
+        }
+
+        .stat-value {
+            font-weight: 600;
+            color: var(--text-main);
+        }
+        
+        code {
+            background: rgba(0,0,0,0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Menlo', monospace;
+            font-size: 0.9em;
+            color: #e2e8f0;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+        .btn-primary:hover { background: var(--primary-hover); }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+        .btn-danger:hover {
+            background: rgba(239, 68, 68, 0.2);
+        }
+
+        /* Forms */
+        input[type="number"] {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid var(--border);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            width: 80px;
+        }
+        
+        input[type="number"]:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        /* Progress Bar */
+        .progress-bg {
+            background: rgba(255,255,255,0.1);
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: var(--success);
+            transition: width 0.3s ease;
+        }
+        
+        .progress-fill.warning { background: var(--warning); }
+        .progress-fill.danger { background: var(--danger); }
+
+        /* Table */
+        .table-container {
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        
+        th {
+            text-align: left;
+            color: var(--text-sub);
+            padding: 12px 16px;
+            font-weight: 500;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        td {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-main);
+        }
+        
+        tr:last-child td { border-bottom: none; }
+        
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+        
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+            margin-right: 6px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-sub);
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="card full-width" style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <h1 style="margin: 0; font-size: 1.5rem; background: linear-gradient(to right, #818cf8, #34d399); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                    StripchatRecorder Monitor
+                </h1>
+                <span id="web-status-badge" class="status-badge">
+                    <span class="status-dot"></span> <span id="web-status-text">Running</span>
+                </span>
+            </div>
+            <div style="text-align: right;">
+                <span id="clock" style="color: var(--text-sub); font-family: monospace;">--:--:--</span>
+            </div>
+        </div>
+
+        <!-- Overview -->
+        <div class="card">
+            <h2>运行概览</h2>
+            <div class="stat-item">
+                <span class="stat-label">Web 端口</span>
+                <span class="stat-value" id="port">{{ port }}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">上传目录</span>
+                <code id="up-dir">{{ up_directory }}</code>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">重复模特</span>
+                <span class="stat-value" id="repeated-models" style="color: var(--warning)">-</span>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="card">
+            <h2>统计数据</h2>
+            <div class="stat-item">
+                <span class="stat-label">活跃检测线程</span>
+                <span class="stat-value" id="hilos-count">-</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">正在录制</span>
+                <span class="stat-value" id="recording-count">-</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Wanted 列表</span>
+                <span class="stat-value" id="wanted-count">-</span>
+            </div>
+            <a href="/edit_wanted" class="btn btn-primary" style="width: 100%; margin-top: 10px; box-sizing: border-box;">编辑 Wanted 列表</a>
+        </div>
+
+        <!-- Storage -->
+        <div class="card">
+            <h2>本地存储</h2>
+            <div class="stat-item">
+                <span class="stat-label">已使用 / 总容量</span>
+                <span class="stat-value"><span id="storage-used">-</span> / <span id="storage-total">-</span> GB</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">剩余空间</span>
+                <span class="stat-value" id="storage-free">-</span> GB
+            </div>
+            <div style="margin-top: 10px;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px;">
+                    <span class="stat-label">使用率</span>
+                    <span class="stat-value" id="storage-percent">-</span>
+                </div>
+                <div class="progress-bg">
+                    <div id="storage-bar" class="progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings -->
+        <div class="card">
+            <h2>分段录制设置</h2>
+            <form action="/set_segment_duration" method="post" style="display: flex; gap: 10px; align-items: center;">
+                <label for="duration" class="stat-label">时长(分钟):</label>
+                <input type="number" id="duration" name="duration" value="{{ segment_duration }}" min="1" required>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </form>
+            <p style="margin-top: 12px; font-size: 0.85rem; color: var(--text-sub);">
+                当前: 每 <strong id="current-segment" style="color: var(--text-main)">{{ segment_duration }}</strong> 分钟自动分段。
+            </p>
+        </div>
+
+        <!-- Recording List -->
+        <div class="card full-width">
+            <h2>正在录制 (<span id="list-count">0</span>)</h2>
+            <div class="table-container">
+                <table id="recording-table">
+                    <thead>
+                        <tr>
+                            <th>模特名</th>
+                            <th>文件名</th>
+                            <th>大小</th>
+                            <th>已录制时长</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recording-tbody">
+                        <!-- Content injected by JS -->
+                    </tbody>
+                </table>
+                <div id="empty-state" class="empty-state" style="display: none;">
+                    当前没有模特正在录制
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').innerText = now.toLocaleTimeString();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        async function fetchStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                // Update basic stats
+                document.getElementById('web-status-text').innerText = data.web_status || 'Running';
+                document.getElementById('port').innerText = data.port;
+                document.getElementById('up-dir').innerText = data.up_directory;
+                
+                const repeated = data.repeatedModels.length > 0 ? data.repeatedModels.join(', ') : '无';
+                document.getElementById('repeated-models').innerText = repeated;
+                
+                document.getElementById('hilos-count').innerText = data.hilos_count;
+                document.getElementById('recording-count').innerText = data.recording_info.length;
+                document.getElementById('list-count').innerText = data.recording_info.length;
+                document.getElementById('wanted-count').innerText = data.counterModel;
+                
+                // Update storage
+                const s = data.storage_info.local;
+                if (s) {
+                    document.getElementById('storage-used').innerText = s.used;
+                    document.getElementById('storage-total').innerText = s.total;
+                    document.getElementById('storage-free').innerText = s.free;
+                    document.getElementById('storage-percent').innerText = s.percent_used + '%';
+                    
+                    const bar = document.getElementById('storage-bar');
+                    bar.style.width = s.percent_used + '%';
+                    bar.className = 'progress-fill';
+                    if (s.percent_used > 90) bar.classList.add('danger');
+                    else if (s.percent_used > 70) bar.classList.add('warning');
+                }
+
+                // Update settings text
+                document.getElementById('current-segment').innerText = data.segment_duration;
+
+                // Update table
+                const tbody = document.getElementById('recording-tbody');
+                const emptyState = document.getElementById('empty-state');
+                const table = document.getElementById('recording-table');
+
+                if (data.recording_info.length === 0) {
+                    table.style.display = 'none';
+                    emptyState.style.display = 'block';
+                } else {
+                    table.style.display = 'table';
+                    emptyState.style.display = 'none';
+                    
+                    // Rebuild table rows
+                    let html = '';
+                    data.recording_info.forEach(model => {
+                        html += `
+                            <tr>
+                                <td>
+                                    <div style="font-weight: 500;">${model.name}</div>
+                                </td>
+                                <td style="color: var(--text-sub); font-size: 0.9em;">
+                                    ${model.file}
+                                </td>
+                                <td><span style="font-family: monospace;">${model.size}</span></td>
+                                <td>
+                                    <span class="status-badge">
+                                        <span class="status-dot"></span>
+                                        ${model.elapsed_time}
+                                    </span>
+                                </td>
+                                <td>
+                                    <form action="/stop_recording/${model.name}" method="post" onsubmit="return confirm('确定停止 ${model.name}?');">
+                                        <button type="submit" class="btn btn-danger" style="padding: 4px 10px; font-size: 0.8rem;">停止</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    tbody.innerHTML = html;
+                }
+
+            } catch (err) {
+                console.error('Update failed', err);
+            }
+        }
+
+        // Poll every 2 seconds
+        setInterval(fetchStatus, 2000);
+        fetchStatus(); // Initial load
+    </script>
+</body>
+</html>
