@@ -720,6 +720,10 @@ def create_templates():
             font-weight: 600;
             background: rgba(16, 185, 129, 0.1);
             color: var(--success);
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         
         .status-dot {
@@ -743,22 +747,97 @@ def create_templates():
             color: var(--text-sub);
         }
 
+        /* Header Styles */
+        .header-card { overflow: hidden; }
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .header-title {
+            margin: 0;
+            font-size: 1.5rem;
+            background: linear-gradient(to right, #818cf8, #34d399);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            flex-shrink: 0;
+        }
+        .header-meta {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .header-clock {
+            color: var(--text-sub);
+            font-family: 'Menlo', monospace;
+            font-size: 0.9rem;
+            flex-shrink: 0;
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            body { padding: 12px; }
+            .header-content { flex-direction: column; align-items: flex-start; }
+            .header-meta { width: 100%; justify-content: space-between; }
+            .status-badge { max-width: 60%; }
+            .container { grid-template-columns: 1fr; gap: 16px; }
+            #recording-table thead { display: none; }
+            #recording-table tbody { display: block; }
+            #recording-table tbody tr {
+                display: block;
+                background: rgba(0,0,0,0.2);
+                border-radius: 12px;
+                padding: 16px;
+                margin-bottom: 12px;
+                border: 1px solid var(--border);
+            }
+            #recording-table td {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 8px 0;
+                border-bottom: 1px solid var(--border);
+            }
+            #recording-table td:last-child { border-bottom: none; }
+            #recording-table td::before {
+                content: attr(data-label);
+                font-weight: 500;
+                color: var(--text-sub);
+                flex-shrink: 0;
+                margin-right: 12px;
+            }
+            h2 { font-size: 1.1rem; }
+            .card { padding: 16px; }
+            .stat-item { font-size: 0.9rem; }
+            .segment-form { flex-direction: column !important; align-items: stretch !important; }
+            .segment-form input[type="number"] { width: 100% !important; box-sizing: border-box; }
+            .segment-form .btn { width: 100%; }
+        }
+        @media (max-width: 480px) {
+            body { padding: 8px; }
+            .header-title { font-size: 1.2rem !important; }
+            .card { padding: 12px; }
+        }
+
     </style>
 </head>
 <body>
     <div class="container">
         <!-- Header -->
-        <div class="card full-width" style="display: flex; justify-content: space-between; align-items: center;">
-            <div style="display: flex; align-items: center; gap: 15px;">
-                <h1 style="margin: 0; font-size: 1.5rem; background: linear-gradient(to right, #818cf8, #34d399); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-                    StripchatRecorder Monitor
-                </h1>
-                <span id="web-status-badge" class="status-badge">
-                    <span class="status-dot"></span> <span id="web-status-text">Running</span>
-                </span>
-            </div>
-            <div style="text-align: right;">
-                <span id="clock" style="color: var(--text-sub); font-family: monospace;">--:--:--</span>
+        <div class="card full-width header-card">
+            <div class="header-content">
+                <h1 class="header-title">StripchatRecorder Monitor</h1>
+                <div class="header-meta">
+                    <span id="web-status-badge" class="status-badge" title="Running">
+                        <span class="status-dot"></span>
+                        <span id="web-status-text">Running</span>
+                    </span>
+                    <span id="clock" class="header-clock">--:--:--</span>
+                </div>
             </div>
         </div>
 
@@ -822,7 +901,7 @@ def create_templates():
         <!-- Settings -->
         <div class="card">
             <h2>分段录制设置</h2>
-            <form action="/set_segment_duration" method="post" style="display: flex; gap: 10px; align-items: center;">
+            <form action="/set_segment_duration" method="post" class="segment-form" style="display: flex; gap: 10px; align-items: center;">
                 <label for="duration" class="stat-label">时长(分钟):</label>
                 <input type="number" id="duration" name="duration" value="{{ segment_duration }}" min="1" required>
                 <button type="submit" class="btn btn-primary">保存</button>
@@ -1139,6 +1218,23 @@ def create_templates():
         }
         .online .status-dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
 
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            body { padding: 12px; }
+            .header { flex-direction: column; align-items: flex-start !important; gap: 10px; }
+            .add-card { flex-direction: column; }
+            .add-card input[type="text"] { width: 100%; box-sizing: border-box; }
+            .add-card .btn { width: 100%; }
+            .grid { grid-template-columns: 1fr !important; gap: 12px; }
+            .model-card { padding: 14px; }
+            .model-name { font-size: 1rem; }
+        }
+        @media (max-width: 480px) {
+            body { padding: 8px; }
+            h1 { font-size: 1.3rem; }
+            .add-card { padding: 16px; }
+        }
+
     </style>
 </head>
 <body>
@@ -1275,14 +1371,19 @@ def create_templates():
 </html>"""
 
 
-    # 写入模板文件
+    # 写入模板文件（仅在不存在时创建，作为 fallback）
     templates_dir = os.path.join(mainDir, 'templates')
     os.makedirs(templates_dir, exist_ok=True)
-    with open(os.path.join(templates_dir, 'index.html'), 'w', encoding='utf-8') as f:
-        f.write(index_html)
     
-    with open(os.path.join(templates_dir, 'edit_wanted.html'), 'w', encoding='utf-8') as f:
-        f.write(edit_html)
+    index_path = os.path.join(templates_dir, 'index.html')
+    if not os.path.exists(index_path):
+        with open(index_path, 'w', encoding='utf-8') as f:
+            f.write(index_html)
+    
+    edit_path = os.path.join(templates_dir, 'edit_wanted.html')
+    if not os.path.exists(edit_path):
+        with open(edit_path, 'w', encoding='utf-8') as f:
+            f.write(edit_html)
 
 def firstRun():
     script = os.path.join(mainDir, 't.sh')
