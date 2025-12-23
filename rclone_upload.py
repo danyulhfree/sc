@@ -7,11 +7,18 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any, Optional, Tuple, Union
+
+# 强制行缓冲，确保日志立即输出
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(line_buffering=True)
 
 
 DEFAULT_INCLUDE_EXTS = {
@@ -264,6 +271,86 @@ def run_rclone_file(
             time.sleep(retry_sleep)
 
     return False
+
+
+def run_rclone_dir(
+    *,
+    action: str,
+    source_dir: Path,
+    dest: str,
+    files_to_upload: list[str],
+    rclone_base: list[str],
+    dry_run: bool,
+    retries: int,
+    retry_sleep: float,
+    show_progress: bool = True,
+) -> bool:
+    """使用 rclone copy/move 批量上传目录中指定的文件列表。
+    
+    利用 --files-from 参数指定要上传的文件，rclone 会使用 --transfers 并发上传。
+    """
+    if action not in {"copy", "move"}:
+        raise ValueError(f"unsupported action: {action}")
+    
+    if not files_to_upload:
+        return True
+    
+    # 创建临时文件列表
+    import tempfile
+    files_from_path = Path(tempfile.gettempdir()) / f"rclone_files_{os.getpid()}.txt"
+    try:
+        files_from_path.write_text("\n".join(files_to_upload) + "\n", encoding="utf-8")
+    except Exception as e:
+        log("ERROR", f"创建文件列表失败: {e}")
+        return False
+    
+    cmd = [*rclone_base, action, str(source_dir), dest, f"--files-from={files_from_path}"]
+    if show_progress and "--progress" not in cmd and "-P" not in cmd:
+        cmd.append("--progress")
+    
+    if dry_run:
+        log("INFO", f"[DRY-RUN] {' '.join(cmd)}")
+        log("INFO", f"[DRY-RUN] 文件列表: {files_to_upload}")
+        try:
+            files_from_path.unlink()
+        except Exception:
+            pass
+        return True
+    
+    success = False
+    for attempt in range(1, retries + 1):
+        try:
+            log("INFO", f"rclone {action}: {source_dir} -> {dest} ({len(files_to_upload)} 个文件, attempt {attempt}/{retries})")
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=None,  # stderr 直接继承到终端，显示实时进度
+                text=True,
+            )
+            stdout_data, _ = proc.communicate()
+            if proc.returncode == 0:
+                if stdout_data and stdout_data.strip():
+                    log("INFO", stdout_data.strip())
+                success = True
+                break
+            if stdout_data and stdout_data.strip():
+                log("WARN", stdout_data.strip())
+        except FileNotFoundError:
+            log("ERROR", f"找不到 rclone: {rclone_base[0]}")
+            break
+        except Exception as e:
+            log("WARN", f"执行 rclone 异常: {e}")
+        
+        if attempt < retries:
+            time.sleep(retry_sleep)
+    
+    # 清理临时文件
+    try:
+        files_from_path.unlink()
+    except Exception:
+        pass
+    
+    return success
 
 
 def wait_until_stable(path: Path, *, stable_checks: int, interval: float, max_wait: float) -> Tuple[bool, int, float]:
@@ -617,7 +704,7 @@ def main() -> int:
     if args.dry_run:
         log("INFO", "DRY-RUN: 不会实际上传/不会写入状态")
 
-    action = "moveto" if args.mode == "move" else "copyto"
+    action_dir = "move" if args.mode == "move" else "copy"
 
     def maybe_prune(need: bool) -> None:
         if not need or not args.prune_empty_dirs:
@@ -645,45 +732,52 @@ def main() -> int:
             maybe_prune(did_local_delete)
             return 0
 
+        # 收集待上传文件的相对路径列表
+        files_to_upload = [rel for _, rel, _, _ in stable]
+        file_info = {rel: (size, mtime) for _, rel, size, mtime in stable}
+        
         rc = 0
-        moved_any = False
-        for p, rel, size, mtime in stable:
-            dest_file = join_rclone_path(dest, rel)
-            if run_rclone_file(
-                action=action,
-                source=p,
-                dest=dest_file,
-                rclone_base=rclone_base,
-                dry_run=bool(args.dry_run),
-                retries=max(1, int(args.retries)),
-                retry_sleep=max(0.0, float(args.retry_sleep)),
-            ):
-                if not args.dry_run:
+        if run_rclone_dir(
+            action=action_dir,
+            source_dir=watch_dir,
+            dest=dest,
+            files_to_upload=files_to_upload,
+            rclone_base=rclone_base,
+            dry_run=bool(args.dry_run),
+            retries=max(1, int(args.retries)),
+            retry_sleep=max(0.0, float(args.retry_sleep)),
+        ):
+            # 批量上传成功，记录所有文件状态
+            if not args.dry_run:
+                for rel in files_to_upload:
+                    size, mtime = file_info[rel]
                     mark_uploaded(state, rel, size, mtime)
-                    atomic_write_json(state_file, state)
-                if args.mode == "move":
-                    moved_any = True
-            else:
-                rc = 2
-        maybe_prune(moved_any or did_local_delete)
+                atomic_write_json(state_file, state)
+        else:
+            rc = 2
+        
+        maybe_prune(args.mode == "move" or did_local_delete)
         return rc
 
     def do_one_pass_once() -> int:
         now = time.time()
         rc = 0
-        min_age = max(0.0, float(args.min_age))
-        stable_checks = max(1, int(args.stable_checks))
+        min_age_val = max(0.0, float(args.min_age))
+        stable_checks_val = max(1, int(args.stable_checks))
         interval = max(0.2, float(args.wait_interval))
-        max_wait = max(1.0, float(args.max_wait))
-        moved_any = False
+        max_wait_val = max(1.0, float(args.max_wait))
         did_local_delete = False
+        
+        # 收集待上传文件
+        files_to_upload: list[str] = []
+        file_info: dict[str, tuple[int, float]] = {}
 
         for p in sorted(iter_files(watch_dir, include_exts, exclude_globs), key=lambda x: x.as_posix()):
             try:
                 st = p.stat()
             except FileNotFoundError:
                 continue
-            if (now - float(st.st_mtime)) < min_age:
+            if (now - float(st.st_mtime)) < min_age_val:
                 continue
 
             size = int(st.st_size)
@@ -706,7 +800,7 @@ def main() -> int:
             if already_uploaded(state, rel, size, mtime):
                 continue
 
-            ok, size2, mtime2 = wait_until_stable(p, stable_checks=stable_checks, interval=interval, max_wait=max_wait)
+            ok, size2, mtime2 = wait_until_stable(p, stable_checks=stable_checks_val, interval=interval, max_wait=max_wait_val)
             if not ok:
                 continue
             if is_small_file(p, size2, min_size_bytes=min_size_bytes, min_size_exts=min_size_exts):
@@ -720,26 +814,33 @@ def main() -> int:
                 continue
             if already_uploaded(state, rel, size2, mtime2):
                 continue
+            
+            files_to_upload.append(rel)
+            file_info[rel] = (size2, mtime2)
+        
+        if not files_to_upload:
+            maybe_prune(did_local_delete)
+            return 0
+        
+        if run_rclone_dir(
+            action=action_dir,
+            source_dir=watch_dir,
+            dest=dest,
+            files_to_upload=files_to_upload,
+            rclone_base=rclone_base,
+            dry_run=bool(args.dry_run),
+            retries=max(1, int(args.retries)),
+            retry_sleep=max(0.0, float(args.retry_sleep)),
+        ):
+            if not args.dry_run:
+                for rel in files_to_upload:
+                    size, mtime = file_info[rel]
+                    mark_uploaded(state, rel, size, mtime)
+                atomic_write_json(state_file, state)
+        else:
+            rc = 2
 
-            dest_file = join_rclone_path(dest, rel)
-            if run_rclone_file(
-                action=action,
-                source=p,
-                dest=dest_file,
-                rclone_base=rclone_base,
-                dry_run=bool(args.dry_run),
-                retries=max(1, int(args.retries)),
-                retry_sleep=max(0.0, float(args.retry_sleep)),
-            ):
-                if not args.dry_run:
-                    mark_uploaded(state, rel, size2, mtime2)
-                    atomic_write_json(state_file, state)
-                if args.mode == "move":
-                    moved_any = True
-            else:
-                rc = 2
-
-        maybe_prune(moved_any or did_local_delete)
+        maybe_prune(args.mode == "move" or did_local_delete)
         return rc
 
     if args.once:
