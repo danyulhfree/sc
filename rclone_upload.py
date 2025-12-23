@@ -222,11 +222,15 @@ def run_rclone_file(
     dry_run: bool,
     retries: int,
     retry_sleep: float,
+    show_progress: bool = True,
 ) -> bool:
     if action not in {"copyto", "moveto"}:
         raise ValueError(f"unsupported action: {action}")
 
     cmd = [*rclone_base, action, str(source), dest]
+    # 添加 --progress 以显示实时进度
+    if show_progress and "--progress" not in cmd and "-P" not in cmd:
+        cmd.append("--progress")
 
     if dry_run:
         log("INFO", f"[DRY-RUN] {' '.join(cmd)}")
@@ -235,17 +239,21 @@ def run_rclone_file(
     for attempt in range(1, retries + 1):
         try:
             log("INFO", f"rclone {action}: {source} -> {dest} (attempt {attempt}/{retries})")
-            proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            # 使用 Popen 让 stderr 实时输出到终端（rclone 的进度信息走 stderr）
+            # stdout 不太重要，可以捕获用于 DEBUG
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=None,  # stderr 直接继承到终端，显示实时进度
+                text=True,
+            )
+            stdout_data, _ = proc.communicate()
             if proc.returncode == 0:
-                if proc.stdout.strip():
-                    log("INFO", proc.stdout.strip())
-                if proc.stderr.strip():
-                    log("INFO", proc.stderr.strip())
+                if stdout_data and stdout_data.strip():
+                    log("INFO", stdout_data.strip())
                 return True
-            if proc.stdout.strip():
-                log("WARN", proc.stdout.strip())
-            if proc.stderr.strip():
-                log("WARN", proc.stderr.strip())
+            if stdout_data and stdout_data.strip():
+                log("WARN", stdout_data.strip())
         except FileNotFoundError:
             log("ERROR", f"找不到 rclone: {rclone_base[0]}")
             return False
