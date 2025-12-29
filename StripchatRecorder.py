@@ -1630,6 +1630,22 @@ class Modelo(threading.Thread):
                 log_event(f'[MOUFLON] 未找到变体播放列表: {self.modelo}')
                 return
             
+            # 检查是否需要重写 URL (参考 CodersRepository 修复)
+            # From: https://media-hls.doppiocdn.com/b-hls-25/189420462/189420462.m3u8
+            # To:   https://b-hls-25.doppiocdn.live/hls/189420462/189420462.m3u8
+            match = re.match(r'https://media-hls\.doppiocdn\.\w+/(b-hls-\d+)/(\d+)/(.+)', variant_url)
+            if match:
+                b_hls_server = match.group(1)  # e.g., b-hls-25
+                stream_id = match.group(2)      # e.g., 189420462
+                filename = match.group(3)       # e.g., 189420462.m3u8
+                
+                # 去除可能的查询参数
+                if '?' in filename:
+                    filename = filename.split('?')[0]
+                    
+                variant_url = f"https://{b_hls_server}.doppiocdn.live/hls/{stream_id}/{filename}"
+                log_event(f'[MOUFLON] 重写变体 URL: {variant_url}')
+
             # 变体 URL 必须添加认证参数才能获取真实内容（否则返回广告）
             # 关键：使用 psch=v1（不是 v2）并添加 pdkey 参数
             auth_variant_url = f"{variant_url}?psch=v1&pkey={pkey}&pdkey={decrypt_key}"
