@@ -1630,8 +1630,9 @@ class Modelo(threading.Thread):
                 log_event(f'[MOUFLON] 未找到变体播放列表: {self.modelo}')
                 return
             
-            # Add authentication params
-            auth_variant_url = f"{variant_url}?psch={psch}&pkey={pkey}&playlistType=lowLatency"
+            # 变体 URL 必须添加认证参数才能获取真实内容（否则返回广告）
+            # 关键：使用 psch=v1（不是 v2）并添加 pdkey 参数
+            auth_variant_url = f"{variant_url}?psch=v1&pkey={pkey}&pdkey={decrypt_key}"
             
             print(f"[开始录制] 开始 MOUFLON 录制模特 {self.modelo} 到文件 {os.path.basename(self.file)}")
             log_event(f'开始 MOUFLON 录制: {self.modelo} -> {self.file}')
@@ -1669,7 +1670,7 @@ class Modelo(threading.Thread):
                     init_downloaded = False  # Need to re-download init for new file
                     log_event(f'[分段] 创建新文件: {self.file}')
                 
-                # Fetch variant playlist
+                # Fetch variant playlist (带认证参数)
                 try:
                     resp = self.http.get(auth_variant_url, timeout=10)
                     if resp.status_code != 200:
@@ -1683,6 +1684,12 @@ class Modelo(threading.Thread):
                 
                 playlist_content = resp.text
                 
+                # 检查是否是广告内容
+                if 'MOUFLON-ADVERT' in playlist_content or '/cpa/' in playlist_content:
+                    log_event(f'[MOUFLON] 收到广告内容，认证可能已失效: {self.modelo}')
+                    time.sleep(2)
+                    continue
+                
                 # Download init segment if not yet done
                 if not init_downloaded:
                     init_match = re.search(r'#EXT-X-MAP:URI="([^"]+)"', playlist_content)
@@ -1692,36 +1699,82 @@ class Modelo(threading.Thread):
                             init_resp = self.http.get(init_url, timeout=15)
                             if init_resp.status_code == 200:
                                 current_file.write(init_resp.content)
+                                current_file.flush()  # 确保 init 段写入磁盘
                                 init_downloaded = True
                                 log_event(f'[MOUFLON] 下载 init 段成功: {len(init_resp.content)} bytes')
                         except Exception as e:
                             log_event(f'[MOUFLON] 下载 init 段失败: {e}')
                 
-                # Extract and decrypt MOUFLON:FILE entries
+                # 提取 #EXT-X-MOUFLON:FILE: 加密条目
                 mouflon_files = get_mouflon_file_entries(playlist_content)
                 
-                for encrypted in mouflon_files:
-                    if encrypted in seen_segments:
-                        continue
-                    
-                    # Decrypt to get real segment filename
-                    decrypted_filename = mouflon_decode(encrypted, decrypt_key)
-                    if not decrypted_filename or '\ufffd' in decrypted_filename:
-                        continue  # Decryption failed
-                    
-                    # Construct full segment URL
-                    base_url = variant_url.rsplit('/', 1)[0]
-                    segment_url = f"{base_url}/{decrypted_filename}"
-                    
-                    try:
-                        seg_resp = self.http.get(segment_url, timeout=15)
-                        if seg_resp.status_code == 200:
-                            current_file.write(seg_resp.content)
-                            seen_segments.add(encrypted)
-                        else:
-                            log_event(f'[MOUFLON] 分段下载失败: {seg_resp.status_code} - {decrypted_filename[:50]}')
-                    except Exception as e:
-                        log_event(f'[MOUFLON] 分段请求异常: {e}')
+                base_url = variant_url.rsplit('/', 1)[0]
+                segments_downloaded = 0
+                
+                if mouflon_files:
+                    # 使用 MOUFLON:FILE 方式（需要解密文件名）
+                    for encrypted in mouflon_files:
+                        if encrypted in seen_segments:
+                            continue
+                        
+                        # Decrypt to get real segment filename using pdkey
+                        decrypted_filename = mouflon_decode(encrypted, decrypt_key)
+                        if not decrypted_filename:
+                            # 尝试再次解密（有时可能需要重试或 padding 不同）
+                            log_event(f'[MOUFLON] 解密失败: {encrypted[:20]}...')
+                            continue
+                        
+                        # 构造完整 URL
+                        segment_url = f"{base_url}/{decrypted_filename}"
+                        
+                        try:
+                            seg_resp = self.http.get(segment_url, timeout=15)
+                            if seg_resp.status_code == 200:
+                                current_file.write(seg_resp.content)
+                                seen_segments.add(encrypted)
+                                segments_downloaded += 1
+                                # log_event(f'[MOUFLON] 分段下载成功: {decrypted_filename}')
+                            else:
+                                log_event(f'[MOUFLON] 分段下载失败: {seg_resp.status_code} - {decrypted_filename}')
+                        except Exception as e:
+                            log_event(f'[MOUFLON] 分段请求异常: {e}')
+                else:
+                    # 回退：使用普通 HLS 方式（提取 EXTINF 后的段 URL）
+                    lines = playlist_content.splitlines()
+                    for i, line in enumerate(lines):
+                        if line.startswith('#EXTINF:') and i + 1 < len(lines):
+                            seg_line = lines[i + 1].strip()
+                            # 跳过 #EXT-X-MOUFLON:URI 行，取下一行
+                            if seg_line.startswith('#EXT-X-MOUFLON:URI:'):
+                                if i + 2 < len(lines):
+                                    seg_line = lines[i + 2].strip()
+                                else:
+                                    continue
+                            
+                            if seg_line and not seg_line.startswith('#'):
+                                if seg_line in seen_segments:
+                                    continue
+                                
+                                # 处理相对/绝对 URL
+                                if seg_line.startswith('http'):
+                                    segment_url = seg_line
+                                else:
+                                    segment_url = f"{base_url}/{seg_line}"
+                                
+                                try:
+                                    seg_resp = self.http.get(segment_url, timeout=15)
+                                    if seg_resp.status_code == 200:
+                                        current_file.write(seg_resp.content)
+                                        seen_segments.add(seg_line)
+                                        segments_downloaded += 1
+                                    else:
+                                        log_event(f'[HLS] 分段下载失败: {seg_resp.status_code}')
+                                except Exception as e:
+                                    log_event(f'[HLS] 分段请求异常: {e}')
+                
+                # 定期刷新文件到磁盘
+                if segments_downloaded > 0:
+                    current_file.flush()
                 
                 # Short sleep before next playlist refresh
                 time.sleep(0.5)
@@ -1755,6 +1808,10 @@ class Modelo(threading.Thread):
                 return None  # Fallback to Streamlink
             
             cam = data['cam']
+            # cam 可能是空列表（离线时）或字典（在线时）
+            if not isinstance(cam, dict):
+                return None  # Not online, fallback
+            
             if not cam.get('isCamAvailable') or not cam.get('streamName'):
                 return None  # Not online, fallback
             
@@ -1794,7 +1851,7 @@ class Modelo(threading.Thread):
         current_file = None
 
         try:
-            # First, try to use MOUFLON recording if keys are available
+            # 尝试使用 MOUFLON 录制（需要静态密钥）
             mouflon_result = self._try_mouflon_recording()
             if mouflon_result is not None:
                 return  # MOUFLON recording handled (success or fail), don't continue
@@ -1845,9 +1902,42 @@ class Modelo(threading.Thread):
                 self.online = False
                 return
 
-            # 打开流并等待第一段数据（避免写空文件）
-            sl_session, fd, first_data, _ = self._open_streamlink_fd(stream_name)
-            if fd is None or not first_data:
+            # 选择最佳质量的流
+            stream_quality = 'best'
+            if stream_quality not in streams:
+                available = list(streams.keys())
+                if available:
+                    stream_quality = available[-1]  # 通常最后一个是最高质量
+                else:
+                    log_event(f'Streamlink 无可用流: {self.modelo}')
+                    self.online = False
+                    return
+            
+            stream = streams[stream_quality]
+            log_event(f'使用流质量 {stream_quality}: {self.modelo}')
+            
+            # 打开流
+            try:
+                fd = stream.open()
+            except Exception as e:
+                log_event(f'Streamlink 打开流失败: {self.modelo} - {e}')
+                self.online = False
+                return
+            
+            # 等待并读取第一段数据（确认流是有效的）
+            first_data = None
+            for attempt in range(5):
+                try:
+                    first_data = fd.read(STREAM_READ_SIZE)
+                    if first_data:
+                        break
+                except Exception as e:
+                    log_event(f'读取首段数据失败: {self.modelo} - {e}')
+                time.sleep(0.5)
+            
+            if not first_data:
+                log_event(f'Streamlink 无法读取数据: {self.modelo}')
+                fd.close()
                 self.online = False
                 return
 
@@ -1942,7 +2032,7 @@ class Modelo(threading.Thread):
                             log_event(f'模特已下线，停止录制: {self.modelo}')
                             break
 
-                        stream_name = self.stream_name or stream_name
+                        stream_name = self.stream_name
 
                         try:
                             if fd:
@@ -1950,23 +2040,42 @@ class Modelo(threading.Thread):
                         except Exception:
                             pass
 
+                        # 重新获取流并打开
                         try:
-                            if sl_session:
-                                sl_session = None
-                        except Exception:
-                            pass
-
-                        sl_session, fd, first_data, _ = self._open_streamlink_fd(stream_name)
-                        if fd is None or not first_data:
-                            if no_data_restarts >= MAX_NO_DATA_RESTARTS:
-                                log_event(f'重连失败次数过多，停止录制: {self.modelo}')
-                                break
-                            last_data_time = current_time
-                            time.sleep(1)
-                            continue
-
-                        current_file.write(first_data)
-                        last_data_time = time.time()
+                            hls_url = self.isOnline()
+                            if not hls_url:
+                                if no_data_restarts >= MAX_NO_DATA_RESTARTS:
+                                    log_event(f'重连失败次数过多，停止录制: {self.modelo}')
+                                    break
+                                last_data_time = current_time
+                                time.sleep(1)
+                                continue
+                            
+                            new_session = streamlink.Streamlink()
+                            new_session.set_option("http-headers", DEFAULT_HEADERS.copy())
+                            
+                            if 'stripchat.com' in hls_url:
+                                new_streams = new_session.streams(hls_url)
+                            else:
+                                new_streams = new_session.streams(f'hlsvariant://{hls_url}')
+                            
+                            if new_streams and 'best' in new_streams:
+                                new_stream = new_streams['best']
+                                fd = new_stream.open()
+                                first_data = fd.read(STREAM_READ_SIZE)
+                                if first_data:
+                                    current_file.write(first_data)
+                                    last_data_time = time.time()
+                                    log_event(f'重连成功: {self.modelo}')
+                                    continue
+                        except Exception as e:
+                            log_event(f'重连异常: {self.modelo} - {e}')
+                        
+                        if no_data_restarts >= MAX_NO_DATA_RESTARTS:
+                            log_event(f'重连失败次数过多，停止录制: {self.modelo}')
+                            break
+                        last_data_time = current_time
+                        time.sleep(1)
                         continue
 
                     time.sleep(0.5)
@@ -2109,39 +2218,38 @@ class Modelo(threading.Thread):
                 log_event(f'API返回列表而不是预期的字典: {self.modelo}')
                 return False
                 
+            if not isinstance(data, dict) or 'cam' not in data:
+                return False
+                
+            cam = data['cam']
+            # cam 可能是空列表（离线时）或字典（在线时）
+            if not isinstance(cam, dict):
+                return False
+                
             hls_url = ''
-            if 'cam' in data.keys():
-                if {'isCamAvailable', 'streamName'} <= data['cam'].keys():
-                    if data['cam']['isCamAvailable'] and data['cam']['streamName']:
-                        # 尝试获取 viewServers 中的 HLS 地址
-                        if 'viewServers' in data['cam'] and 'flashphoner-hls' in data['cam']['viewServers']:
-                           hls_url = f'https://{data["cam"]["viewServers"]["flashphoner-hls"]}/hls/{data["cam"]["streamName"]}/playlist.m3u8'
-                        elif 'hlsUrl' in data['cam']: # 备选方案: 直接使用 hlsUrl
-                           hls_url = data['cam']['hlsUrl']
-                        else: 
-                           # 新备选: edge-hls / master playlist (verified 2024-12)
-                           hls_url = f'https://edge-hls.doppiocdn.live/hls/{data["cam"]["streamName"]}/master/{data["cam"]["streamName"]}_auto.m3u8'
-                           
-                           # 如果没有 viewServers 和 hlsUrl，说明是 WebRTC 或受保护流。
-                           # 返回 Profile URL 让 Streamlink 插件尝试处理 (需配合正确 Headers)
-                           if not hls_url: # Should not happen if we use edge-hls fallback
-                               log_event(f'无 HLS 地址，尝试使用 Profile URL: {self.modelo}')
-                               return f'https://stripchat.com/{self.modelo}'
+            if {'isCamAvailable', 'streamName'} <= cam.keys():
+                if cam['isCamAvailable'] and cam['streamName']:
+                    stream_name = cam['streamName']
+                    self.stream_name = str(stream_name)
+                    
+                    # 尝试获取 viewServers 中的 HLS 地址
+                    if 'viewServers' in cam and 'flashphoner-hls' in cam['viewServers']:
+                        hls_url = f'https://{cam["viewServers"]["flashphoner-hls"]}/hls/{stream_name}/playlist.m3u8'
+                    elif 'hlsUrl' in cam:  # 备选方案: 直接使用 hlsUrl
+                        hls_url = cam['hlsUrl']
+                    else: 
+                        # 新备选: edge-hls / master playlist (verified 2024-12)
+                        hls_url = f'https://edge-hls.doppiocdn.com/hls/{stream_name}/master/{stream_name}_auto.m3u8'
 
-            if len(hls_url):
+            if hls_url:
                 # 验证URL是否有效 (带 Cookies)
                 try:
                     # 使用 Session (含 Cookies) 发送 HEAD 请求
                     with self.http.head(hls_url, timeout=5, allow_redirects=True) as r:
-                         if r.status_code >= 400:
-                             log_event(f'HLS URL无效 (Status {r.status_code}): {self.modelo} - {hls_url}')
-                             # 如果无效，以前是回退到 Profile URL，但现在 Profile URL 也不行 (NoPlugin)
-                             # 只有当 Streamlink 有 stripchat 插件时才回退到 Profile。
-                             # 现在我们相信 cookies 能解决 403，所以这里的 403 可能是 cookies 失效。
-                             # 但如果用户提供了 cookies，我们应该尝试用 cookies 去录制 HLS。
-                             # 可是如果 HEAD 都 403，streamlink 可能也会 403。
-                             # 无论如何，返回 HLS URL 让 Streamlink 试一把（它也会带 cookies）。
-                             pass # 忽略 403，让 run() 里的 streamlink 带 cookie 再试一次
+                        if r.status_code >= 400:
+                            log_event(f'HLS URL无效 (Status {r.status_code}): {self.modelo} - {hls_url}')
+                            # 忽略 403，让 run() 里的 streamlink 带 cookie 再试一次
+                            pass
                              
                 except Exception as e:
                     log_event(f'验证HLS URL失败: {self.modelo} - {e}')
@@ -2150,39 +2258,6 @@ class Modelo(threading.Thread):
                 return hls_url
             else:
                 return False
-
-            stream_name = cam.get('streamName')
-            is_available = bool(cam.get('isCamAvailable'))
-            if not is_available or not stream_name:
-                return False
-
-            self.stream_name = str(stream_name)
-
-            # 根据 broadcastSettings.presets 生成 suffix 优先级（高->低）
-            try:
-                suffixes = ['']  # source（无 suffix）放最前，能用则优先
-                broadcast = cam.get('broadcastSettings') if isinstance(cam, dict) else None
-                presets = (broadcast or {}).get('presets') if isinstance(broadcast, dict) else None
-                default_presets = (presets or {}).get('default') if isinstance(presets, dict) else None
-                for p in (default_presets or []):
-                    if not p:
-                        continue
-                    s = str(p).strip()
-                    if not s:
-                        continue
-                    if not s.startswith('_'):
-                        s = f'_{s}'
-                    if s not in suffixes:
-                        suffixes.append(s)
-                self._hls_suffixes = suffixes or ['']
-            except Exception:
-                self._hls_suffixes = ['']
-
-            # 新版 HLS master URL（edge-hls.* + /hls/{streamName}/master/{streamName}.m3u8）
-            # 直接返回一个默认可用的 host；如失败，run() 会自动轮询其它 host。
-            if not self._hls_cdn_host:
-                self._hls_cdn_host = "doppiocdn.live"
-            return HLS_MASTER_URL_TEMPLATE.format(cdn_host=self._hls_cdn_host, stream_name=self.stream_name, suffix='')
         except requests.exceptions.RequestException as e: # 更具体的异常捕获
              log_event(f'网络请求错误 (isOnline): {self.modelo} - {e}')
              log_event(f'网络请求错误 (isOnline): {self.modelo} - {e}')
@@ -2340,6 +2415,9 @@ if __name__ == '__main__':
             # 但如果它发生在 sleep 期间，有时还是会抛出。
             stop_requested.set()
             break
+        except BrokenPipeError:
+            # 终端断开连接时忽略此错误
+            pass
         except Exception as e:
             log_event(f"Main loop error: {e}")
             time.sleep(1)
