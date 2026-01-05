@@ -250,6 +250,7 @@ app_state = {
     "segment_duration_overridden": False,  # Web 运行时覆盖，避免被 readConfig 周期性重置
     "segment_duration": 30,  # 分段录制时长，默认30分钟
     "segment_duration_overridden": False,  # Web 运行时覆盖，避免被 readConfig 周期性重置
+    "model_status": {}, # 模特状态缓存
 }
 
 # 获取存储空间信息
@@ -341,7 +342,8 @@ def get_system_status_data():
         "recording_info": recording_info,
         "counterModel": counter_model,
         "segment_duration": segment_duration,
-        "up_directory": setting.get('up_directory', '未配置')
+        "up_directory": setting.get('up_directory', '未配置'),
+        "model_status": dict(app_state.get("model_status", {})),
     }
 
 @app.route('/api/status')
@@ -823,6 +825,13 @@ def create_templates():
             .card { padding: 12px; }
         }
 
+        /* Grid */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
     </style>
 </head>
 <body>
@@ -896,6 +905,14 @@ def create_templates():
                     <div id="storage-bar" class="progress-fill" style="width: 0%"></div>
                 </div>
             </div>
+        </div>
+        
+        <!-- Monitor Status List -->
+        <div class="card full-width">
+             <h2>监控状态 (<span id="monitor-count">Live Status</span>)</h2>
+             <div id="monitor-list">
+                 <div style="text-align:center; padding:20px; color:var(--text-sub);">加载中...</div>
+             </div>
         </div>
 
         <!-- Settings -->
@@ -1028,6 +1045,48 @@ def create_templates():
                         `;
                     });
                     tbody.innerHTML = html;
+                }
+                
+                // Update Monitor List (New Section)
+                const monitorDiv = document.getElementById('monitor-list');
+                const modelStatus = data.model_status || {};
+                // Combine wanted list with status
+                // We don't have the full wanted list in this API response, but repeatedModels + recording + hilos roughly covers active checks.
+                // Better to fetch wanted list? No, let's use what we have in model_status which accumulates all checked models.
+                
+                if (monitorDiv) {
+                    const statusKeys = Object.keys(modelStatus).sort();
+                    if (statusKeys.length === 0) {
+                        monitorDiv.innerHTML = '<div style="color:var(--text-sub); padding:10px;">暂无监控数据</div>';
+                    } else {
+                        let monHtml = '<div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px;">';
+                        statusKeys.forEach(model => {
+                            const st = modelStatus[model];
+                            let badgeClass = 'status-badge'; // default green-ish
+                            let colorStyle = '';
+                            
+                            if (st === 'public') {
+                                colorStyle = 'background: rgba(16, 185, 129, 0.1); color: #10b981;';
+                            } else if (st === 'private' || st === 'group') {
+                                colorStyle = 'background: rgba(245, 158, 11, 0.1); color: #f59e0b;';
+                            } else if (st === 'off' || st === 'offline') {
+                                colorStyle = 'background: rgba(148, 163, 184, 0.1); color: #94a3b8;';
+                            } else {
+                                colorStyle = 'background: rgba(99, 102, 241, 0.1); color: #6366f1;';
+                            }
+                            
+                            monHtml += `
+                                <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; font-size: 0.9rem; display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: 500; overflow:hidden; text-overflow:ellipsis;">${model}</span>
+                                    <span style="padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; ${colorStyle}">
+                                        ${st}
+                                    </span>
+                                </div>
+                            `;
+                        });
+                        monHtml += '</div>';
+                        monitorDiv.innerHTML = monHtml;
+                    }
                 }
 
             } catch (err) {
@@ -2241,7 +2300,31 @@ class Modelo(threading.Thread):
             # cam 可能是空列表（离线时）或字典（在线时）
             if not isinstance(cam, dict):
                 return False
-                
+            
+            # 提取并更新房间状态
+            status_val = 'unknown'
+            try:
+                # 尝试从 user.user.status 获取
+                if 'user' in data and 'user' in data['user'] and 'status' in data['user']['user']:
+                    status_val = data['user']['user']['status']
+            except Exception:
+                pass
+            
+            # 如果是 unknown，尝试推断 (例如: 有 cam 但 status unknown -> 可能是 public)
+            # 但为了安全，只认 'public'
+            
+            # 更新全局状态
+            with state_lock:
+                if "model_status" not in app_state:
+                    app_state["model_status"] = {}
+                app_state["model_status"][self.modelo] = status_val
+            
+            # 强制过滤：必须是 public 才下载
+            if status_val != 'public':
+                # 即使 isCamAvailable 为 True，如果状态不是 public (例如 private, p2p, group)，也不下载
+                # log_event(f'跳过非公开房间: {self.modelo} (Status: {status_val})')
+                return False
+
             hls_url = ''
             if {'isCamAvailable', 'streamName'} <= cam.keys():
                 if cam['isCamAvailable'] and cam['streamName']:

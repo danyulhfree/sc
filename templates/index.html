@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -20,11 +19,11 @@
             --danger: #ef4444;
             --border: rgba(148, 163, 184, 0.1);
         }
-
+        
         body {
             font-family: 'Inter', sans-serif;
             background-color: var(--bg-dark);
-            background-image:
+            background-image: 
                 radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
                 radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.15) 0px, transparent 50%);
             color: var(--text-main);
@@ -55,7 +54,7 @@
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
             transition: transform 0.2s ease;
         }
-
+        
         .card:hover {
             transform: translateY(-2px);
         }
@@ -89,9 +88,9 @@
             font-weight: 600;
             color: var(--text-main);
         }
-
+        
         code {
-            background: rgba(0, 0, 0, 0.3);
+            background: rgba(0,0,0,0.3);
             padding: 2px 6px;
             border-radius: 4px;
             font-family: 'Menlo', monospace;
@@ -118,31 +117,27 @@
             background: var(--primary);
             color: white;
         }
-
-        .btn-primary:hover {
-            background: var(--primary-hover);
-        }
+        .btn-primary:hover { background: var(--primary-hover); }
 
         .btn-danger {
             background: rgba(239, 68, 68, 0.1);
             color: var(--danger);
             border: 1px solid rgba(239, 68, 68, 0.2);
         }
-
         .btn-danger:hover {
             background: rgba(239, 68, 68, 0.2);
         }
 
         /* Forms */
         input[type="number"] {
-            background: rgba(0, 0, 0, 0.2);
+            background: rgba(0,0,0,0.2);
             border: 1px solid var(--border);
             color: white;
             padding: 8px 12px;
             border-radius: 6px;
             width: 80px;
         }
-
+        
         input[type="number"]:focus {
             outline: none;
             border-color: var(--primary);
@@ -150,38 +145,33 @@
 
         /* Progress Bar */
         .progress-bg {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(255,255,255,0.1);
             height: 8px;
             border-radius: 4px;
             overflow: hidden;
             margin-top: 8px;
         }
-
+        
         .progress-fill {
             height: 100%;
             background: var(--success);
             transition: width 0.3s ease;
         }
-
-        .progress-fill.warning {
-            background: var(--warning);
-        }
-
-        .progress-fill.danger {
-            background: var(--danger);
-        }
+        
+        .progress-fill.warning { background: var(--warning); }
+        .progress-fill.danger { background: var(--danger); }
 
         /* Table */
         .table-container {
             overflow-x: auto;
         }
-
+        
         table {
             width: 100%;
             border-collapse: separate;
             border-spacing: 0;
         }
-
+        
         th {
             text-align: left;
             color: var(--text-sub);
@@ -189,17 +179,15 @@
             font-weight: 500;
             border-bottom: 1px solid var(--border);
         }
-
+        
         td {
             padding: 16px;
             border-bottom: 1px solid var(--border);
             color: var(--text-main);
         }
-
-        tr:last-child td {
-            border-bottom: none;
-        }
-
+        
+        tr:last-child td { border-bottom: none; }
+        
         .status-badge {
             display: inline-flex;
             align-items: center;
@@ -214,7 +202,7 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-
+        
         .status-dot {
             width: 6px;
             height: 6px;
@@ -225,19 +213,11 @@
         }
 
         @keyframes pulse {
-            0% {
-                opacity: 1;
-            }
-
-            50% {
-                opacity: 0.5;
-            }
-
-            100% {
-                opacity: 1;
-            }
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
         }
-
+        
         .empty-state {
             text-align: center;
             padding: 40px;
@@ -245,10 +225,7 @@
         }
 
         /* Header Styles */
-        .header-card {
-            overflow: hidden;
-        }
-
+        .header-card { overflow: hidden; }
         .header-content {
             display: flex;
             justify-content: space-between;
@@ -256,7 +233,6 @@
             flex-wrap: wrap;
             gap: 12px;
         }
-
         .header-title {
             margin: 0;
             font-size: 1.5rem;
@@ -266,14 +242,12 @@
             -webkit-text-fill-color: transparent;
             flex-shrink: 0;
         }
-
         .header-meta {
             display: flex;
             align-items: center;
             gap: 12px;
             flex-wrap: wrap;
         }
-
         .header-clock {
             color: var(--text-sub);
             font-family: 'Menlo', monospace;
@@ -283,49 +257,21 @@
 
         /* Mobile Responsive */
         @media (max-width: 768px) {
-            body {
-                padding: 12px;
-            }
-
-            /* Header 垂直堆叠 */
-            .header-content {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-
-            .header-meta {
-                width: 100%;
-                justify-content: space-between;
-            }
-
-            .status-badge {
-                max-width: 60%;
-            }
-
-            /* 卡片网格改为单列 */
-            .container {
-                grid-template-columns: 1fr;
-                gap: 16px;
-            }
-
-            /* 表格转卡片视图 */
-            #recording-table thead {
-                display: none;
-            }
-
-            #recording-table tbody {
-                display: block;
-            }
-
+            body { padding: 12px; }
+            .header-content { flex-direction: column; align-items: flex-start; }
+            .header-meta { width: 100%; justify-content: space-between; }
+            .status-badge { max-width: 60%; }
+            .container { grid-template-columns: 1fr; gap: 16px; }
+            #recording-table thead { display: none; }
+            #recording-table tbody { display: block; }
             #recording-table tbody tr {
                 display: block;
-                background: rgba(0, 0, 0, 0.2);
+                background: rgba(0,0,0,0.2);
                 border-radius: 12px;
                 padding: 16px;
                 margin-bottom: 12px;
                 border: 1px solid var(--border);
             }
-
             #recording-table td {
                 display: flex;
                 justify-content: space-between;
@@ -333,11 +279,7 @@
                 padding: 8px 0;
                 border-bottom: 1px solid var(--border);
             }
-
-            #recording-table td:last-child {
-                border-bottom: none;
-            }
-
+            #recording-table td:last-child { border-bottom: none; }
             #recording-table td::before {
                 content: attr(data-label);
                 font-weight: 500;
@@ -345,60 +287,34 @@
                 flex-shrink: 0;
                 margin-right: 12px;
             }
-
-            /* 调整字体和间距 */
-            h2 {
-                font-size: 1.1rem;
-            }
-
-            .card {
-                padding: 16px;
-            }
-
-            .stat-item {
-                font-size: 0.9rem;
-            }
-
-            /* 分段设置表单垂直 */
-            .segment-form {
-                flex-direction: column !important;
-                align-items: stretch !important;
-            }
-
-            .segment-form input[type="number"] {
-                width: 100% !important;
-                box-sizing: border-box;
-            }
-
-            .segment-form .btn {
-                width: 100%;
-            }
+            h2 { font-size: 1.1rem; }
+            .card { padding: 16px; }
+            .stat-item { font-size: 0.9rem; }
+            .segment-form { flex-direction: column !important; align-items: stretch !important; }
+            .segment-form input[type="number"] { width: 100% !important; box-sizing: border-box; }
+            .segment-form .btn { width: 100%; }
         }
-
         @media (max-width: 480px) {
-            body {
-                padding: 8px;
-            }
-
-            .header-title {
-                font-size: 1.2rem !important;
-            }
-
-            .card {
-                padding: 12px;
-            }
+            body { padding: 8px; }
+            .header-title { font-size: 1.2rem !important; }
+            .card { padding: 12px; }
         }
+
+        /* Grid */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
     </style>
 </head>
-
 <body>
     <div class="container">
         <!-- Header -->
         <div class="card full-width header-card">
             <div class="header-content">
-                <h1 class="header-title">
-                    StripchatRecorder Monitor
-                </h1>
+                <h1 class="header-title">StripchatRecorder Monitor</h1>
                 <div class="header-meta">
                     <span id="web-status-badge" class="status-badge" title="Running">
                         <span class="status-dot"></span>
@@ -441,8 +357,7 @@
                 <span class="stat-label">Wanted 列表</span>
                 <span class="stat-value" id="wanted-count">-</span>
             </div>
-            <a href="/edit_wanted" class="btn btn-primary"
-                style="width: 100%; margin-top: 10px; box-sizing: border-box;">编辑 Wanted 列表</a>
+            <a href="/edit_wanted" class="btn btn-primary" style="width: 100%; margin-top: 10px; box-sizing: border-box;">编辑 Wanted 列表</a>
         </div>
 
         <!-- Storage -->
@@ -466,18 +381,25 @@
                 </div>
             </div>
         </div>
+        
+        <!-- Monitor Status List -->
+        <div class="card full-width">
+             <h2>监控状态 (<span id="monitor-count">Live Status</span>)</h2>
+             <div id="monitor-list">
+                 <div style="text-align:center; padding:20px; color:var(--text-sub);">加载中...</div>
+             </div>
+        </div>
 
         <!-- Settings -->
         <div class="card">
             <h2>分段录制设置</h2>
-            <form action="/set_segment_duration" method="post" style="display: flex; gap: 10px; align-items: center;">
+            <form action="/set_segment_duration" method="post" class="segment-form" style="display: flex; gap: 10px; align-items: center;">
                 <label for="duration" class="stat-label">时长(分钟):</label>
                 <input type="number" id="duration" name="duration" value="{{ segment_duration }}" min="1" required>
                 <button type="submit" class="btn btn-primary">保存</button>
             </form>
             <p style="margin-top: 12px; font-size: 0.85rem; color: var(--text-sub);">
-                当前: 每 <strong id="current-segment" style="color: var(--text-main)">{{ segment_duration }}</strong>
-                分钟自动分段。
+                当前: 每 <strong id="current-segment" style="color: var(--text-main)">{{ segment_duration }}</strong> 分钟自动分段。
             </p>
         </div>
 
@@ -527,20 +449,20 @@
             try {
                 const response = await fetch('/api/status');
                 const data = await response.json();
-
+                
                 // Update basic stats
                 document.getElementById('web-status-text').innerText = data.web_status || 'Running';
                 document.getElementById('port').innerText = data.port;
                 document.getElementById('up-dir').innerText = data.up_directory;
-
+                
                 const repeated = data.repeatedModels.length > 0 ? data.repeatedModels.join(', ') : '无';
                 document.getElementById('repeated-models').innerText = repeated;
-
+                
                 document.getElementById('hilos-count').innerText = data.hilos_count;
                 document.getElementById('recording-count').innerText = data.recording_info.length;
                 document.getElementById('list-count').innerText = data.recording_info.length;
                 document.getElementById('wanted-count').innerText = data.counterModel;
-
+                
                 // Update storage
                 const s = data.storage_info.local;
                 if (s) {
@@ -548,7 +470,7 @@
                     document.getElementById('storage-total').innerText = s.total;
                     document.getElementById('storage-free').innerText = s.free;
                     document.getElementById('storage-percent').innerText = s.percent_used + '%';
-
+                    
                     const bar = document.getElementById('storage-bar');
                     bar.style.width = s.percent_used + '%';
                     bar.className = 'progress-fill';
@@ -570,7 +492,7 @@
                 } else {
                     table.style.display = 'table';
                     emptyState.style.display = 'none';
-
+                    
                     // Rebuild table rows
                     let html = '';
                     data.recording_info.forEach(model => {
@@ -599,6 +521,48 @@
                     });
                     tbody.innerHTML = html;
                 }
+                
+                // Update Monitor List (New Section)
+                const monitorDiv = document.getElementById('monitor-list');
+                const modelStatus = data.model_status || {};
+                // Combine wanted list with status
+                // We don't have the full wanted list in this API response, but repeatedModels + recording + hilos roughly covers active checks.
+                // Better to fetch wanted list? No, let's use what we have in model_status which accumulates all checked models.
+                
+                if (monitorDiv) {
+                    const statusKeys = Object.keys(modelStatus).sort();
+                    if (statusKeys.length === 0) {
+                        monitorDiv.innerHTML = '<div style="color:var(--text-sub); padding:10px;">暂无监控数据</div>';
+                    } else {
+                        let monHtml = '<div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px;">';
+                        statusKeys.forEach(model => {
+                            const st = modelStatus[model];
+                            let badgeClass = 'status-badge'; // default green-ish
+                            let colorStyle = '';
+                            
+                            if (st === 'public') {
+                                colorStyle = 'background: rgba(16, 185, 129, 0.1); color: #10b981;';
+                            } else if (st === 'private' || st === 'group') {
+                                colorStyle = 'background: rgba(245, 158, 11, 0.1); color: #f59e0b;';
+                            } else if (st === 'off' || st === 'offline') {
+                                colorStyle = 'background: rgba(148, 163, 184, 0.1); color: #94a3b8;';
+                            } else {
+                                colorStyle = 'background: rgba(99, 102, 241, 0.1); color: #6366f1;';
+                            }
+                            
+                            monHtml += `
+                                <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; font-size: 0.9rem; display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: 500; overflow:hidden; text-overflow:ellipsis;">${model}</span>
+                                    <span style="padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; ${colorStyle}">
+                                        ${st}
+                                    </span>
+                                </div>
+                            `;
+                        });
+                        monHtml += '</div>';
+                        monitorDiv.innerHTML = monHtml;
+                    }
+                }
 
             } catch (err) {
                 console.error('Update failed', err);
@@ -610,5 +574,4 @@
         fetchStatus(); // Initial load
     </script>
 </body>
-
 </html>
