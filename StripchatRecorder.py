@@ -4,6 +4,7 @@ import os
 import threading
 import sys
 import configparser
+import json
 import subprocess
 import queue
 import shlex
@@ -91,27 +92,116 @@ DEFAULT_HEADERS = {
 MOUFLON_KEYS = {
     "Zeechoej4aleeshi": "ubahjae7goPoodi6",
 }
+MOUFLON_KEYS_PATH = os.path.join(mainDir, 'stripchat_mouflon_keys.json')
+MOUFLON_KEYS_MTIME = None
+MOUFLON_URI_ENCODED_RE = re.compile(r'_(\d+)_([^_]+)_(\d+)(?:_part\d+)?\.(?:mp4|m4s)$')
+
+def load_mouflon_keys():
+    """Load extra MOUFLON keys from stripchat_mouflon_keys.json if present."""
+    global MOUFLON_KEYS_MTIME
+
+    try:
+        stat = os.stat(MOUFLON_KEYS_PATH)
+    except OSError:
+        return
+
+    if MOUFLON_KEYS_MTIME is not None and stat.st_mtime <= MOUFLON_KEYS_MTIME:
+        return
+
+    MOUFLON_KEYS_MTIME = stat.st_mtime
+    try:
+        with open(MOUFLON_KEYS_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return
+
+        def normalize_keys(value):
+            if isinstance(value, list):
+                return [v for v in value if isinstance(v, str) and v]
+            if isinstance(value, str) and value:
+                return [value]
+            return []
+
+        loaded_keys = []
+        for pkey, pdkey in data.items():
+            if not isinstance(pkey, str) or not pkey:
+                continue
+
+            incoming = normalize_keys(pdkey)
+            if not incoming:
+                continue
+
+            existing = normalize_keys(MOUFLON_KEYS.get(pkey))
+            merged = []
+            for item in existing + incoming:
+                if item not in merged:
+                    merged.append(item)
+
+            if merged:
+                MOUFLON_KEYS[pkey] = merged if len(merged) > 1 else merged[0]
+                loaded_keys.append(pkey)
+
+        if loaded_keys:
+            log_event(f'[MOUFLON] 已加载密钥: {", ".join(sorted(set(loaded_keys)))}')
+    except Exception as e:
+        log_event(f'[MOUFLON] 读取密钥文件失败: {e}')
+
+def _is_raw_mouflon_key(key) -> bool:
+    return isinstance(key, str) and (key.startswith("sha256:") or key.startswith("mask:"))
+
+def _parse_mouflon_key_bytes(key: str) -> Optional[bytes]:
+    if not isinstance(key, str) or not key:
+        return None
+    if _is_raw_mouflon_key(key):
+        hex_value = key.split(":", 1)[1].strip()
+        try:
+            return bytes.fromhex(hex_value)
+        except ValueError:
+            return None
+    return hashlib.sha256(key.encode("utf-8")).digest()
 
 def mouflon_decode(encrypted_b64: str, key: str) -> str:
     """Decode an encrypted segment URL using XOR with SHA256 of key."""
-    hash_bytes = hashlib.sha256(key.encode("utf-8")).digest()
+    hash_bytes = _parse_mouflon_key_bytes(key)
+    if not hash_bytes:
+        return None
     hash_len = len(hash_bytes)
     
-    # Try with and without padding
+    # Try with and without padding, standard and URL-safe base64
     for padded in [encrypted_b64, encrypted_b64 + "=", encrypted_b64 + "=="]:
-        try:
-            encrypted_data = base64.b64decode(padded)
-            decrypted_bytes = bytearray()
-            for i, cipher_byte in enumerate(encrypted_data):
-                key_byte = hash_bytes[i % hash_len]
-                decrypted_byte = cipher_byte ^ key_byte
-                decrypted_bytes.append(decrypted_byte)
-            
-            plaintext = decrypted_bytes.decode("utf-8", errors='replace')
-            return plaintext
-        except Exception:
-            continue
+        for decoder in (base64.b64decode, base64.urlsafe_b64decode):
+            try:
+                encrypted_data = decoder(padded)
+                decrypted_bytes = bytearray()
+                for i, cipher_byte in enumerate(encrypted_data):
+                    key_byte = hash_bytes[i % hash_len]
+                    decrypted_byte = cipher_byte ^ key_byte
+                    decrypted_bytes.append(decrypted_byte)
+
+                plaintext = decrypted_bytes.decode("utf-8", errors='replace')
+                return plaintext
+            except Exception:
+                continue
     return None
+
+def mouflon_decode_v2(encrypted_b64: str, key: str) -> str:
+    """Decode a v2 encrypted segment: reverse, then apply v1 decode."""
+    if not encrypted_b64 or not key:
+        return None
+    return mouflon_decode(encrypted_b64[::-1], key)
+
+def decode_mouflon_uri(uri: str, key: str) -> Optional[str]:
+    """Decode the encrypted part in a #EXT-X-MOUFLON:URI line (v2)."""
+    if not uri or not key:
+        return None
+    match = MOUFLON_URI_ENCODED_RE.search(uri)
+    if not match:
+        return None
+    encrypted_part = match.group(2)
+    decoded_part = mouflon_decode_v2(encrypted_part, key)
+    if not decoded_part:
+        return None
+    return uri.replace(encrypted_part, decoded_part, 1)
 
 def get_mouflon_pkeys(m3u8_content: str) -> list:
     """Extract all psch/pkey pairs from m3u8 content."""
@@ -133,6 +223,111 @@ def get_mouflon_file_entries(m3u8_content: str) -> list:
             encrypted = line.split(':', 2)[2].strip()
             entries.append(encrypted)
     return entries
+
+def append_mouflon_auth_params(url: str, psch: str, pkey: str, pdkey: Optional[str] = None) -> str:
+    """Append psch/pkey (and optional pdkey) to URL when missing."""
+    if not url or not psch or not pkey:
+        return url
+
+    if pdkey and _is_raw_mouflon_key(pdkey):
+        pdkey = None
+
+    has_psch = 'psch=' in url
+    has_pkey = 'pkey=' in url
+    has_pdkey = 'pdkey=' in url
+
+    if has_psch and has_pkey and (pdkey is None or has_pdkey):
+        return url
+
+    sep = '&' if '?' in url else '?'
+    url = f"{url}{sep}psch={psch}&pkey={pkey}"
+    if pdkey and not has_pdkey:
+        url = f"{url}&pdkey={pdkey}"
+    return url
+
+def _extract_attr_value(tag_line: str, attr_name: str) -> Optional[str]:
+    """Extract attribute value from a tag line like #EXT-X-PART:...URI=\"...\"."""
+    m = re.search(rf'{attr_name}=\"([^\"]+)\"', tag_line)
+    return m.group(1) if m else None
+
+def _normalize_segment_url(uri: str, base_url: str) -> str:
+    if not uri:
+        return uri
+    if uri.startswith('http://') or uri.startswith('https://'):
+        return uri
+    return urljoin(base_url + '/', uri)
+
+def build_mouflon_segment_urls(
+    m3u8_content: str,
+    base_url: str,
+    psch: str,
+    pkey: str,
+    add_auth: bool = False,
+    pdkey: Optional[str] = None,
+):
+    """Build real segment URLs by replacing placeholder URIs with #EXT-X-MOUFLON:URI."""
+    pending_uri = None
+    expect_uri_after_inf = False
+    segment_urls = []
+    replaced = 0
+
+    for raw_line in m3u8_content.splitlines():
+        line = (raw_line or "").strip()
+        if not line:
+            continue
+
+        if line.startswith('#EXT-X-MOUFLON:URI:'):
+            pending_uri = line.split(':', 2)[2].strip()
+            if psch == 'v2' and pdkey:
+                decoded_uri = decode_mouflon_uri(pending_uri, pdkey)
+                if decoded_uri:
+                    pending_uri = decoded_uri
+            continue
+
+        if line.startswith('#EXT-X-PART:'):
+            part_uri = _extract_attr_value(line, 'URI')
+            if not part_uri:
+                continue
+            real_uri = pending_uri or part_uri
+            if pending_uri:
+                replaced += 1
+                pending_uri = None
+            segment_url = _normalize_segment_url(real_uri, base_url)
+            if add_auth:
+                segment_url = append_mouflon_auth_params(segment_url, psch, pkey, pdkey)
+            segment_urls.append(segment_url)
+            continue
+
+        if line.startswith('#EXTINF:'):
+            expect_uri_after_inf = True
+            continue
+
+        if line.startswith('#'):
+            continue
+
+        if expect_uri_after_inf:
+            real_uri = pending_uri or line
+            if pending_uri:
+                replaced += 1
+                pending_uri = None
+            expect_uri_after_inf = False
+            segment_url = _normalize_segment_url(real_uri, base_url)
+            if add_auth:
+                segment_url = append_mouflon_auth_params(segment_url, psch, pkey, pdkey)
+            segment_urls.append(segment_url)
+
+    return segment_urls, replaced
+
+def is_ad_playlist(playlist_content: str) -> bool:
+    if not playlist_content:
+        return False
+    return 'MOUFLON-ADVERT' in playlist_content or '/cpa/' in playlist_content
+
+def extract_stream_name_from_hls_url(url: str) -> Optional[str]:
+    if not url:
+        return None
+    match = re.search(r'/hls/([^/]+)/', url)
+    return match.group(1) if match else None
 
 def pick_best_variant_url(master_m3u8: str, master_url: str) -> Optional[str]:
     """Pick the highest quality variant from a master m3u8."""
@@ -1488,6 +1683,8 @@ def readConfig():
         'postProcessingThreads': post_threads,
         'proxy': proxy,
     }
+
+    load_mouflon_keys()
     
     try:
         segment_duration = int(Config.get('settings', 'segmentDuration', fallback='0'))
@@ -1689,28 +1886,34 @@ class Modelo(threading.Thread):
                 log_event(f'[MOUFLON] 未找到变体播放列表: {self.modelo}')
                 return
             
-            # 检查是否需要重写 URL (参考 CodersRepository 修复)
-            # From: https://media-hls.doppiocdn.com/b-hls-25/189420462/189420462.m3u8
-            # To:   https://b-hls-25.doppiocdn.live/hls/189420462/189420462.m3u8
+            # 备选重写 URL（仅当原始播放列表不可用时）
             match = re.match(r'https://media-hls\.doppiocdn\.\w+/(b-hls-\d+)/(\d+)/(.+)', variant_url)
+            fallback_variant_url = None
             if match:
                 b_hls_server = match.group(1)  # e.g., b-hls-25
                 stream_id = match.group(2)      # e.g., 189420462
                 filename = match.group(3)       # e.g., 189420462.m3u8
-                
+
                 # 去除可能的查询参数
                 if '?' in filename:
                     filename = filename.split('?')[0]
-                    
-                variant_url = f"https://{b_hls_server}.doppiocdn.live/hls/{stream_id}/{filename}"
-                log_event(f'[MOUFLON] 重写变体 URL: {variant_url}')
+
+                fallback_variant_url = f"https://{b_hls_server}.doppiocdn.live/hls/{stream_id}/{filename}"
 
             # 变体 URL 必须添加认证参数才能获取真实内容（否则返回广告）
-            # 关键：使用 psch=v1（不是 v2）并添加 pdkey 参数
-            auth_variant_url = f"{variant_url}?psch=v1&pkey={pkey}&pdkey={decrypt_key}"
+            active_variant_url = variant_url
+            auth_variant_url = append_mouflon_auth_params(active_variant_url, psch, pkey, decrypt_key)
+            fallback_auth_variant_url = None
+            if fallback_variant_url:
+                fallback_auth_variant_url = append_mouflon_auth_params(
+                    fallback_variant_url,
+                    psch,
+                    pkey,
+                    decrypt_key,
+                )
             
             print(f"[开始录制] 开始 MOUFLON 录制模特 {self.modelo} 到文件 {os.path.basename(self.file)}")
-            log_event(f'开始 MOUFLON 录制: {self.modelo} -> {self.file}')
+            log_event(f'开始 MOUFLON (psch={psch}) 录制: {self.modelo} -> {self.file}')
             
             seen_segments = set()
             current_file = open(self.file, 'wb', buffering=1024 * 1024)
@@ -1749,9 +1952,21 @@ class Modelo(threading.Thread):
                 try:
                     resp = self.http.get(auth_variant_url, timeout=10)
                     if resp.status_code != 200:
-                        log_event(f'[MOUFLON] 获取变体播放列表失败: {resp.status_code}')
-                        time.sleep(2)
-                        continue
+                        if fallback_auth_variant_url:
+                            retry_resp = self.http.get(fallback_auth_variant_url, timeout=10)
+                            if retry_resp.status_code == 200:
+                                auth_variant_url = fallback_auth_variant_url
+                                active_variant_url = fallback_variant_url
+                                resp = retry_resp
+                                log_event(f'[MOUFLON] 变体 URL 切换为备用域: {active_variant_url}')
+                            else:
+                                log_event(f'[MOUFLON] 获取变体播放列表失败: {resp.status_code}')
+                                time.sleep(2)
+                                continue
+                        else:
+                            log_event(f'[MOUFLON] 获取变体播放列表失败: {resp.status_code}')
+                            time.sleep(2)
+                            continue
                 except Exception as e:
                     log_event(f'[MOUFLON] 请求失败: {e}')
                     time.sleep(2)
@@ -1783,9 +1998,13 @@ class Modelo(threading.Thread):
                 # 提取 #EXT-X-MOUFLON:FILE: 加密条目
                 mouflon_files = get_mouflon_file_entries(playlist_content)
                 
-                base_url = variant_url.rsplit('/', 1)[0]
+                base_url = active_variant_url.rsplit('/', 1)[0]
                 segments_downloaded = 0
                 
+                if mouflon_files and not decrypt_key:
+                    log_event(f'[MOUFLON] 缺少解密密钥，跳过 MOUFLON:FILE: {self.modelo}')
+                    mouflon_files = []
+
                 if mouflon_files:
                     # 使用 MOUFLON:FILE 方式（需要解密文件名）
                     for encrypted in mouflon_files:
@@ -1814,38 +2033,45 @@ class Modelo(threading.Thread):
                         except Exception as e:
                             log_event(f'[MOUFLON] 分段请求异常: {e}')
                 else:
-                    # 回退：使用普通 HLS 方式（提取 EXTINF 后的段 URL）
-                    lines = playlist_content.splitlines()
-                    for i, line in enumerate(lines):
-                        if line.startswith('#EXTINF:') and i + 1 < len(lines):
-                            seg_line = lines[i + 1].strip()
-                            # 跳过 #EXT-X-MOUFLON:URI 行，取下一行
-                            if seg_line.startswith('#EXT-X-MOUFLON:URI:'):
-                                if i + 2 < len(lines):
-                                    seg_line = lines[i + 2].strip()
-                                else:
+                    # V2/V1 fallback: replace placeholder URIs with MOUFLON:URI in-order
+                    segment_urls, replaced = build_mouflon_segment_urls(
+                        playlist_content,
+                        base_url,
+                        psch,
+                        pkey,
+                        pdkey=decrypt_key,
+                    )
+                    if replaced:
+                        log_event(f'[MOUFLON] 已替换占位 URI: {replaced} 条 ({self.modelo})')
+
+                    if not segment_urls:
+                        log_event(f'[MOUFLON] 未解析到分段 URL: {self.modelo}')
+                    else:
+                        for segment_url in segment_urls:
+                            if segment_url in seen_segments:
+                                continue
+
+                            try:
+                                seg_resp = self.http.get(segment_url, timeout=15)
+                                if seg_resp.status_code == 200:
+                                    current_file.write(seg_resp.content)
+                                    seen_segments.add(segment_url)
+                                    segments_downloaded += 1
                                     continue
-                            
-                            if seg_line and not seg_line.startswith('#'):
-                                if seg_line in seen_segments:
-                                    continue
-                                
-                                # 处理相对/绝对 URL
-                                if seg_line.startswith('http'):
-                                    segment_url = seg_line
-                                else:
-                                    segment_url = f"{base_url}/{seg_line}"
-                                
-                                try:
-                                    seg_resp = self.http.get(segment_url, timeout=15)
-                                    if seg_resp.status_code == 200:
-                                        current_file.write(seg_resp.content)
-                                        seen_segments.add(seg_line)
+
+                                retry_url = append_mouflon_auth_params(segment_url, psch, pkey, decrypt_key)
+                                if retry_url != segment_url:
+                                    retry_resp = self.http.get(retry_url, timeout=15)
+                                    if retry_resp.status_code == 200:
+                                        current_file.write(retry_resp.content)
+                                        seen_segments.add(segment_url)
                                         segments_downloaded += 1
-                                    else:
-                                        log_event(f'[HLS] 分段下载失败: {seg_resp.status_code}')
-                                except Exception as e:
-                                    log_event(f'[HLS] 分段请求异常: {e}')
+                                        continue
+                                    seg_resp = retry_resp
+
+                                log_event(f'[MOUFLON] 分段下载失败: {seg_resp.status_code} - {segment_url}')
+                            except Exception as e:
+                                log_event(f'[MOUFLON] 分段请求异常: {e}')
                 
                 # 定期刷新文件到磁盘
                 if segments_downloaded > 0:
@@ -1865,6 +2091,97 @@ class Modelo(threading.Thread):
                 if self in recording:
                     recording.remove(self)
             self.online = False
+
+    def _probe_mouflon_segment(self, segment_url: str) -> bool:
+        try:
+            resp = self.http.get(segment_url, headers={'Range': 'bytes=0-1'}, timeout=10)
+            ok = resp.status_code in (200, 206) and resp.content
+            resp.close()
+            return ok
+        except Exception:
+            return False
+
+    def _probe_mouflon_key(self, variant_url: str, psch: str, pkey: str, decrypt_key: str) -> bool:
+        if not variant_url:
+            return False
+        auth_variant_url = append_mouflon_auth_params(variant_url, psch, pkey, decrypt_key)
+        try:
+            resp = self.http.get(auth_variant_url, timeout=10)
+        except Exception:
+            return False
+        if resp.status_code != 200:
+            return False
+        playlist_content = resp.text
+
+        if 'MOUFLON-ADVERT' in playlist_content or '/cpa/' in playlist_content:
+            return False
+
+        if psch != 'v2':
+            return True
+
+        base_url = variant_url.rsplit('/', 1)[0]
+        for line in playlist_content.splitlines():
+            if not line.startswith('#EXT-X-MOUFLON:URI:'):
+                continue
+            uri = line.split(':', 2)[2].strip()
+            decoded_uri = decode_mouflon_uri(uri, decrypt_key)
+            candidate_uri = decoded_uri or uri
+            segment_url = _normalize_segment_url(candidate_uri, base_url)
+            segment_url = append_mouflon_auth_params(segment_url, psch, pkey, decrypt_key)
+            if self._probe_mouflon_segment(segment_url):
+                return True
+        return False
+
+    def _try_mouflon_from_master(
+        self,
+        stream_name: str,
+        master_url: str,
+        master_text: str,
+        variant_url_hint: Optional[str] = None,
+        log_fallback: bool = True,
+    ) -> Optional[bool]:
+        if not stream_name or not master_url or not master_text:
+            return None
+
+        pkey_pairs = get_mouflon_pkeys(master_text)
+        if not pkey_pairs:
+            if log_fallback:
+                log_event(f'[MOUFLON] 没有找到匹配的静态密钥，回退到 Streamlink: {self.modelo}')
+            return None
+
+        variant_url = pick_best_variant_url(master_text, master_url)
+        if not variant_url:
+            variant_urls = re.findall(r'(https://media-hls[^\s]+\.m3u8)', master_text)
+            variant_url = variant_urls[0] if variant_urls else None
+        if not variant_url and variant_url_hint:
+            variant_url = variant_url_hint
+
+        for psch, pkey in pkey_pairs:
+            if pkey in MOUFLON_KEYS:
+                key_candidates = MOUFLON_KEYS[pkey]
+                if not isinstance(key_candidates, list):
+                    key_candidates = [key_candidates]
+
+                if psch == 'v2' and variant_url:
+                    for decrypt_key in key_candidates:
+                        if self._probe_mouflon_key(variant_url, psch, pkey, decrypt_key):
+                            log_event(f'[MOUFLON] 找到可用密钥: pkey={pkey}')
+                            self.run_mouflon(stream_name, psch, pkey, decrypt_key)
+                            return True
+                    log_event(f'[MOUFLON] 静态密钥验证失败: pkey={pkey}')
+                else:
+                    decrypt_key = key_candidates[0]
+                    log_event(f'[MOUFLON] 找到匹配的静态密钥: pkey={pkey}')
+                    self.run_mouflon(stream_name, psch, pkey, decrypt_key)
+                    return True
+
+            if psch == 'v2':
+                log_event(f'[MOUFLON] 缺少 V2 密钥，跳过 pkey={pkey}')
+
+        if log_fallback:
+            pkeys_str = ', '.join([p for _, p in pkey_pairs])
+            log_event(f'[MOUFLON] 没有找到匹配的静态密钥 (检测到: {pkeys_str})，回退到 Streamlink: {self.modelo}')
+        return False
 
     def _try_mouflon_recording(self):
         """
@@ -1899,19 +2216,10 @@ class Modelo(threading.Thread):
             if master_resp.status_code != 200:
                 log_event(f'[MOUFLON] 无法获取主播放列表，回退到 Streamlink: {self.modelo}')
                 return None  # Fallback
-            
-            pkey_pairs = get_mouflon_pkeys(master_resp.text)
-            
-            # Find a pkey that we have a static key for
-            for psch, pkey in pkey_pairs:
-                if pkey in MOUFLON_KEYS:
-                    decrypt_key = MOUFLON_KEYS[pkey]
-                    log_event(f'[MOUFLON] 找到匹配的静态密钥: pkey={pkey}')
-                    self.run_mouflon(stream_name, psch, pkey, decrypt_key)
-                    return True  # MOUFLON recording was attempted
-            
-            # No matching keys found
-            log_event(f'[MOUFLON] 没有找到匹配的静态密钥，回退到 Streamlink: {self.modelo}')
+
+            result = self._try_mouflon_from_master(stream_name, master_url, master_resp.text)
+            if result:
+                return True
             return None  # Fallback
             
         except Exception as e:
@@ -1938,6 +2246,40 @@ class Modelo(threading.Thread):
                 return
 
             self.online = True
+
+            stream_name = self.stream_name or extract_stream_name_from_hls_url(hls_url)
+            if stream_name and not self.stream_name:
+                self.stream_name = stream_name
+
+            if stream_name:
+                master_url = f'https://edge-hls.doppiocdn.com/hls/{stream_name}/master/{stream_name}_auto.m3u8'
+                try:
+                    master_resp = self.http.get(master_url, timeout=10)
+                    if master_resp.status_code == 200:
+                        result = self._try_mouflon_from_master(
+                            stream_name,
+                            master_url,
+                            master_resp.text,
+                            log_fallback=False,
+                        )
+                        if result is True:
+                            return
+                        if result is False:
+                            log_event(f'[MOUFLON] 检测到加密流但无可用密钥，跳过 Streamlink: {self.modelo}')
+                            self.online = False
+                            return
+                except Exception as e:
+                    log_event(f'[MOUFLON] 回退检测失败: {self.modelo} - {e}')
+
+            if hls_url.endswith('.m3u8'):
+                try:
+                    preflight_resp = self.http.get(hls_url, timeout=10)
+                    if preflight_resp.status_code == 200 and is_ad_playlist(preflight_resp.text):
+                        log_event(f'[HLS] 检测到广告播放列表，跳过录制: {self.modelo}')
+                        self.online = False
+                        return
+                except Exception as e:
+                    log_event(f'[HLS] 预检失败: {self.modelo} - {e}')
 
             # 确保目录存在
             os.makedirs(os.path.join(setting['save_directory'], self.modelo), exist_ok=True)

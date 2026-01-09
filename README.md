@@ -24,3 +24,18 @@ If your server/network gets `403` / DNS errors when opening HLS URLs, set an out
 
 - `config.conf` → `[settings]` → `proxy = http://127.0.0.1:3247`
 - or environment variable: `SC_PROXY=http://127.0.0.1:3247`
+
+## MOUFLON v2 keys (optional)
+
+Some streams use MOUFLON v2 segment obfuscation. You can provide keys in
+`stripchat_mouflon_keys.json` (same folder as the script) to enable decoding.
+
+Supported formats:
+- plain key string: `"<pdkey>"` (will be SHA256-hashed; also used as `pdkey` for auth)
+- raw sha256 bytes: `"sha256:<hex>"` (32 bytes hex)
+- derived XOR mask bytes: `"mask:<hex>"`
+
+If you have HAR captures, you can derive masks:
+```
+python derive_mouflon_keys_from_har.py sc.har sc2.har sc3.har
+```
