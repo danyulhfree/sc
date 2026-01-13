@@ -51,7 +51,7 @@ exec "$PY_BIN" "$ROOT_DIR/rclone_upload.py" \
   --rclone-arg="--retries=${RCLONE_UPLOAD_RCLONE_RETRIES:-10}" \
   --rclone-arg="--retries-sleep=${RCLONE_UPLOAD_RCLONE_RETRIES_SLEEP:-30s}" \
   --rclone-arg="--log-file=${RCLONE_UPLOAD_RCLONE_LOG_FILE:-$ROOT_DIR/logs/rclone_transfer.log}" \
-  --rclone-arg="--log-level=${RCLONE_UPLOAD_RCLONE_LOG_LEVEL:-ERROR}" \
+  --rclone-arg="--log-level=${RCLONE_UPLOAD_RCLONE_LOG_LEVEL:-NOTICE}" \
   --rclone-arg="--stats=${RCLONE_UPLOAD_STATS:-10s}" \
-  --rclone-arg="--stats-one-line" \
+  --rclone-arg="--stats-log-level=NOTICE" \
   "$@"
