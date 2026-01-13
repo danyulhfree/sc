@@ -37,6 +37,7 @@ import re
 from urllib.parse import urljoin
 from typing import Optional
 from flask import Flask, render_template, request, redirect, url_for, jsonify
+from waitress import serve as waitress_serve
 
 if os.name == 'nt':
     import ctypes
@@ -675,21 +676,23 @@ def start_web_server():
             print(f"\n[Web服务] 正在端口 {port} 上启动Web界面...")
             
             # 先检查端口是否被占用
-            import socket
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 result = sock.connect_ex(('127.0.0.1', port))
             
             if result == 0:  # 端口已被占用
                 raise OSError(f"端口 {port} 已被占用")
             
-            # 尝试启动服务器
+            # 尝试启动服务器 - 使用 waitress 替代 Flask 内置服务器
+            # waitress 是生产级 WSGI 服务器，对恶意请求（如 HTTPS 到 HTTP 端口）有更好的容错能力
             success_msg = f"[Web服务] Web界面运行中: http://localhost:{port} 或 http://服务器IP:{port}"
             print(success_msg)
             with state_lock:
                 app_state["web_status"] = success_msg
             log_event(success_msg)
-            app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
-            return  # app.run 阻塞，正常情况下不会返回
+            
+            # 使用 waitress 启动服务器，它能正确处理恶意/格式错误的请求而不会崩溃
+            waitress_serve(app, host='0.0.0.0', port=port, threads=4, _quiet=True)
+            return  # waitress_serve 阻塞，正常情况下不会返回
         except Exception as e:
             # 捕获所有异常，不仅仅是OSError
             error_type = type(e).__name__
@@ -701,18 +704,13 @@ def start_web_server():
             log_event(f'Web服务启动错误: 端口={port}, 错误类型={error_type}, 错误信息={error_msg}')
             
             port += 1
-            
-            port += 1
             if port > max_port:
                 final_error_msg = f"[Web服务] 无法找到可用端口（{8080}-{max_port}），Web界面未启动"
                 print(final_error_msg)
                 with state_lock:
                     app_state["web_status"] = final_error_msg
-                with state_lock:
-                    app_state["web_status"] = final_error_msg
                 
                 # 记录到日志文件
-                log_event(final_error_msg)
                 log_event(final_error_msg)
                 break
 
