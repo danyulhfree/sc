@@ -34,6 +34,22 @@ func TestCheckOnlineDecodesStructuredJSON(t *testing.T) {
 	}
 }
 
+func TestCheckOnlineTreatsEmptyCamArrayAsOffline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"cam":[],"user":{"user":{"status":"off"}}}`)
+	}))
+	defer server.Close()
+	r := NewWithOptions("model", Options{HTTPClient: server.Client(), APIBaseURL: server.URL})
+	info, err := r.CheckOnline(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Available || info.StreamName != "" || info.Status != "off" {
+		t.Fatalf("unexpected offline info: %+v", info)
+	}
+}
+
 func TestCheckOnlineClassifiesHTTPFailures(t *testing.T) {
 	tests := []struct {
 		code int

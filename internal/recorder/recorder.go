@@ -608,10 +608,7 @@ func (r *Recorder) CheckOnline(ctx context.Context) (OnlineInfo, error) {
 	}
 
 	var payload struct {
-		Cam struct {
-			IsCamAvailable bool   `json:"isCamAvailable"`
-			StreamName     string `json:"streamName"`
-		} `json:"cam"`
+		Cam  json.RawMessage `json:"cam"`
 		User struct {
 			User struct {
 				Status string `json:"status"`
@@ -624,7 +621,19 @@ func (r *Recorder) CheckOnline(ctx context.Context) (OnlineInfo, error) {
 		r.publishCheck(OnlineInfo{}, checkErr)
 		return OnlineInfo{}, checkErr
 	}
-	info := OnlineInfo{Available: payload.Cam.IsCamAvailable, StreamName: payload.Cam.StreamName, Status: payload.User.User.Status}
+	var cam struct {
+		IsCamAvailable bool   `json:"isCamAvailable"`
+		StreamName     string `json:"streamName"`
+	}
+	camValue := strings.TrimSpace(string(payload.Cam))
+	if camValue != "" && camValue != "null" && camValue != "[]" {
+		if err := json.Unmarshal(payload.Cam, &cam); err != nil {
+			checkErr := &CheckError{Kind: "invalid_response", Err: fmt.Errorf("decode cam: %w", err)}
+			r.publishCheck(OnlineInfo{}, checkErr)
+			return OnlineInfo{}, checkErr
+		}
+	}
+	info := OnlineInfo{Available: cam.IsCamAvailable, StreamName: cam.StreamName, Status: payload.User.User.Status}
 	if info.Status == "" {
 		info.Status = "offline"
 	}
