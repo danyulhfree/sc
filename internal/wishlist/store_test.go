@@ -26,6 +26,9 @@ func TestStoreValidatesAndWritesAtomically(t *testing.T) {
 	if _, err := store.Add([]string{"<script>"}); err == nil {
 		t.Fatal("HTML payload was accepted")
 	}
+	if _, err := store.Add([]string{"_valid-leading-underscore"}); err != nil {
+		t.Fatalf("valid Stripchat model was rejected: %v", err)
+	}
 }
 
 func TestConcurrentAddsDoNotOverwrite(t *testing.T) {

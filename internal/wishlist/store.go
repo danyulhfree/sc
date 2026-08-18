@@ -15,7 +15,7 @@ import (
 
 const maxFileSize = 1 << 20
 
-var modelPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+var modelPattern = regexp.MustCompile(`^[a-z0-9_-]{1,64}$`)
 
 var ErrNotFound = errors.New("model not found")
 
