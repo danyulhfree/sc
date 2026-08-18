@@ -1,0 +1,24 @@
+[Unit]
+Description=SC 1Fichier upload queue
+After=network-online.target redis-server.service
+Wants=network-online.target
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/sc/current
+Environment=SC_UPLOAD_DIR=/root/sc/data/up
+Environment=SC_UPLOAD_STATUS_FILE=/root/sc/data/logs/uploader_status.json
+Environment=SC_UPLOAD_LOCK_FILE=/root/sc/data/logs/uploader.lock
+Environment=SC_UPLOAD_HELPER=/root/sc/current/fic_upload_once.sh
+ExecStart=/root/sc/current/do.sh
+Restart=on-failure
+RestartSec=15
+KillSignal=SIGTERM
+TimeoutStopSec=5min
+StandardOutput=append:/root/sc/data/logs/uploader.service.log
+StandardError=append:/root/sc/data/logs/uploader.service.log
+
+[Install]
+WantedBy=multi-user.target

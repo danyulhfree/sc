@@ -1,577 +1,98 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StripchatRecorder 控制台</title>
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary: #6366f1;
-            --primary-hover: #4f46e5;
-            --bg-dark: #0f172a;
-            --card-bg: rgba(30, 41, 59, 0.7);
-            --text-main: #f8fafc;
-            --text-sub: #94a3b8;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-            --border: rgba(148, 163, 184, 0.1);
-        }
-        
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-dark);
-            background-image: 
-                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
-                radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.15) 0px, transparent 50%);
-            color: var(--text-main);
-            margin: 0;
-            padding: 20px;
-            min-height: 100vh;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 24px;
-        }
-
-        .full-width {
-            grid-column: 1 / -1;
-        }
-
-        .card {
-            background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 24px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            transition: transform 0.2s ease;
-        }
-        
-        .card:hover {
-            transform: translateY(-2px);
-        }
-
-        h2 {
-            margin-top: 0;
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: var(--text-main);
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 16px;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .stat-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-            font-size: 0.95rem;
-        }
-
-        .stat-label {
-            color: var(--text-sub);
-        }
-
-        .stat-value {
-            font-weight: 600;
-            color: var(--text-main);
-        }
-        
-        code {
-            background: rgba(0,0,0,0.3);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: 'Menlo', monospace;
-            font-size: 0.9em;
-            color: #e2e8f0;
-        }
-
-        /* Buttons */
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: none;
-            text-decoration: none;
-            font-size: 0.9rem;
-        }
-
-        .btn-primary {
-            background: var(--primary);
-            color: white;
-        }
-        .btn-primary:hover { background: var(--primary-hover); }
-
-        .btn-danger {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--danger);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-        .btn-danger:hover {
-            background: rgba(239, 68, 68, 0.2);
-        }
-
-        /* Forms */
-        input[type="number"] {
-            background: rgba(0,0,0,0.2);
-            border: 1px solid var(--border);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            width: 80px;
-        }
-        
-        input[type="number"]:focus {
-            outline: none;
-            border-color: var(--primary);
-        }
-
-        /* Progress Bar */
-        .progress-bg {
-            background: rgba(255,255,255,0.1);
-            height: 8px;
-            border-radius: 4px;
-            overflow: hidden;
-            margin-top: 8px;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            background: var(--success);
-            transition: width 0.3s ease;
-        }
-        
-        .progress-fill.warning { background: var(--warning); }
-        .progress-fill.danger { background: var(--danger); }
-
-        /* Table */
-        .table-container {
-            overflow-x: auto;
-        }
-        
-        table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-        }
-        
-        th {
-            text-align: left;
-            color: var(--text-sub);
-            padding: 12px 16px;
-            font-weight: 500;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        td {
-            padding: 16px;
-            border-bottom: 1px solid var(--border);
-            color: var(--text-main);
-        }
-        
-        tr:last-child td { border-bottom: none; }
-        
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            background: rgba(16, 185, 129, 0.1);
-            color: var(--success);
-            max-width: 200px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        
-        .status-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: currentColor;
-            margin-right: 6px;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-        
-        .empty-state {
-            text-align: center;
-            padding: 40px;
-            color: var(--text-sub);
-        }
-
-        /* Header Styles */
-        .header-card { overflow: hidden; }
-        .header-content {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-        .header-title {
-            margin: 0;
-            font-size: 1.5rem;
-            background: linear-gradient(to right, #818cf8, #34d399);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-            flex-shrink: 0;
-        }
-        .header-meta {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-        .header-clock {
-            color: var(--text-sub);
-            font-family: 'Menlo', monospace;
-            font-size: 0.9rem;
-            flex-shrink: 0;
-        }
-
-        /* Mobile Responsive */
-        @media (max-width: 768px) {
-            body { padding: 12px; }
-            .header-content { flex-direction: column; align-items: flex-start; }
-            .header-meta { width: 100%; justify-content: space-between; }
-            .status-badge { max-width: 60%; }
-            .container { grid-template-columns: 1fr; gap: 16px; }
-            #recording-table thead { display: none; }
-            #recording-table tbody { display: block; }
-            #recording-table tbody tr {
-                display: block;
-                background: rgba(0,0,0,0.2);
-                border-radius: 12px;
-                padding: 16px;
-                margin-bottom: 12px;
-                border: 1px solid var(--border);
-            }
-            #recording-table td {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 8px 0;
-                border-bottom: 1px solid var(--border);
-            }
-            #recording-table td:last-child { border-bottom: none; }
-            #recording-table td::before {
-                content: attr(data-label);
-                font-weight: 500;
-                color: var(--text-sub);
-                flex-shrink: 0;
-                margin-right: 12px;
-            }
-            h2 { font-size: 1.1rem; }
-            .card { padding: 16px; }
-            .stat-item { font-size: 0.9rem; }
-            .segment-form { flex-direction: column !important; align-items: stretch !important; }
-            .segment-form input[type="number"] { width: 100% !important; box-sizing: border-box; }
-            .segment-form .btn { width: 100%; }
-        }
-        @media (max-width: 480px) {
-            body { padding: 8px; }
-            .header-title { font-size: 1.2rem !important; }
-            .card { padding: 12px; }
-        }
-
-        /* Grid */
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 20px;
-        }
-
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SC Recorder</title>
+  <style>
+    :root{color-scheme:light;--bg:#f4f6f8;--surface:#fff;--ink:#17202a;--muted:#66727f;--line:#d9dee4;--accent:#087f5b;--accent-dark:#066747;--warn:#b35c00;--danger:#b42318;--blue:#1864ab;--shadow:0 1px 2px rgba(17,24,39,.06)}
+    *{box-sizing:border-box;letter-spacing:0}
+    html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px}
+    button,input,select{font:inherit}
+    button{cursor:pointer}
+    .shell{width:min(1280px,100%);margin:0 auto;padding:0 24px 40px}
+    .topbar{height:64px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+    .identity{display:flex;align-items:center;gap:12px;min-width:0}.mark{display:grid;place-items:center;width:34px;height:34px;background:#123a32;color:#fff;font-weight:800;border-radius:6px}.title{font-size:17px;font-weight:700}.subtitle{color:var(--muted);font-size:12px;margin-top:2px}
+    .connection{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}.dot{width:8px;height:8px;border-radius:50%;background:#9aa4ae}.dot.ok{background:var(--accent)}.dot.bad{background:var(--danger)}
+    .alert{display:none;margin:14px 0 0;padding:10px 12px;border:1px solid #f0b4ae;background:#fff1f0;color:var(--danger);border-radius:5px}.alert.show{display:block}
+    .metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;background:var(--surface);border:1px solid var(--line);border-radius:6px;margin:18px 0;box-shadow:var(--shadow)}
+    .metric{min-width:0;padding:15px 18px;border-right:1px solid var(--line)}.metric:last-child{border-right:0}.metric-label{color:var(--muted);font-size:12px}.metric-value{display:block;margin-top:5px;font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.metric-note{display:block;margin-top:3px;color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .section{background:var(--surface);border:1px solid var(--line);border-radius:6px;margin-top:14px;box-shadow:var(--shadow);overflow:hidden}.section-head{min-height:52px;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line)}.section-head h2{font-size:14px;margin:0}.section-tools{display:flex;align-items:center;gap:8px;min-width:0}.section-body{padding:16px}
+    .link-btn,.primary-btn,.quiet-btn,.danger-btn{border-radius:5px;min-height:34px;padding:7px 11px;text-decoration:none;border:1px solid var(--line);background:#fff;color:var(--ink);display:inline-flex;align-items:center;justify-content:center;gap:6px}.primary-btn{background:var(--accent);border-color:var(--accent);color:#fff}.primary-btn:hover{background:var(--accent-dark)}.quiet-btn:hover,.link-btn:hover{background:#f5f7f8}.danger-btn{border-color:#e8b4af;color:var(--danger)}
+    select,input{height:34px;border:1px solid #bcc4cc;border-radius:5px;background:#fff;color:var(--ink);padding:5px 9px;min-width:0}input:focus,select:focus,button:focus-visible,a:focus-visible{outline:2px solid #74c0a9;outline-offset:2px}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}th{text-align:left;color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;padding:0 10px 9px}td{padding:11px 10px;border-top:1px solid #edf0f2;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}th:first-child,td:first-child{padding-left:0}th:last-child,td:last-child{padding-right:0;text-align:right}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}.empty{color:var(--muted);padding:18px 0;text-align:center}
+    .status{display:inline-flex;align-items:center;gap:6px;max-width:100%;font-size:12px}.status::before{content:"";width:7px;height:7px;border-radius:50%;background:#9aa4ae;flex:0 0 auto}.status.recording::before,.status.public::before{background:var(--accent)}.status.paused::before,.status.private::before,.status.group::before{background:var(--warn)}.status.error::before{background:var(--danger)}
+    .models{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid #edf0f2;border-left:1px solid #edf0f2}.model{min-width:0;padding:11px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;border-right:1px solid #edf0f2;border-bottom:1px solid #edf0f2}.model-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.model-error{grid-column:1/-1;color:var(--danger);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.model-action{grid-row:1/3;grid-column:2;align-self:center;width:32px;height:32px;padding:0;border:1px solid var(--line);background:#fff;border-radius:5px;font-size:15px}.model-action:hover{background:#f4f6f8}
+    .split{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}.kv{display:grid;grid-template-columns:minmax(110px,1fr) minmax(0,2fr);gap:10px;padding:8px 0;border-bottom:1px solid #edf0f2}.kv:last-child{border-bottom:0}.kv dt{color:var(--muted)}.kv dd{margin:0;text-align:right;font-weight:600;overflow-wrap:anywhere}.progress{height:7px;background:#e8ecef;border-radius:4px;overflow:hidden;margin-top:12px}.progress span{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}.progress span.warn{background:var(--warn)}.progress span.danger{background:var(--danger)}
+    .settings{display:flex;align-items:end;gap:8px}.field{display:grid;gap:5px}.field label{font-size:12px;color:var(--muted)}.field input{width:120px}.hint{margin:10px 0 0;color:var(--muted);font-size:12px}.error-text{color:var(--danger)}
+    @media(max-width:820px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.metric{border-bottom:1px solid var(--line)}.metric:nth-child(2n){border-right:0}.metric:last-child{grid-column:1/-1;border-bottom:0}.split{grid-template-columns:1fr}.models{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:560px){.shell{padding:0 12px 28px}.topbar{height:auto;min-height:60px;padding:10px 0}.subtitle{display:none}.connection{max-width:44%;justify-content:flex-end;text-align:right}.metrics{margin:12px 0}.metric{padding:12px}.metric-value{font-size:19px}.section{margin-top:10px}.section-head{align-items:flex-start;flex-direction:column}.section-tools{width:100%}.section-tools select,.section-tools a{flex:1}.section-body{padding:12px}.models{grid-template-columns:1fr}table,thead,tbody,tr,th,td{display:block}thead{display:none}tbody{display:grid;gap:10px}tr{border:1px solid #e3e7ea;border-radius:5px;padding:9px}td{border:0;padding:3px 0!important;text-align:left!important;white-space:normal;overflow-wrap:anywhere}td::before{content:attr(data-label);display:inline-block;width:88px;color:var(--muted);font-size:11px}.settings{align-items:stretch;flex-direction:column}.field input{width:100%}.settings button{width:100%}}
+  </style>
 </head>
-<body>
-    <div class="container">
-        <!-- Header -->
-        <div class="card full-width header-card">
-            <div class="header-content">
-                <h1 class="header-title">StripchatRecorder Monitor</h1>
-                <div class="header-meta">
-                    <span id="web-status-badge" class="status-badge" title="Running">
-                        <span class="status-dot"></span>
-                        <span id="web-status-text">Running</span>
-                    </span>
-                    <span id="clock" class="header-clock">--:--:--</span>
-                </div>
-            </div>
-        </div>
+<body data-base-path="{{.base_path}}" data-csrf-token="{{.csrf_token}}">
+  <main class="shell">
+    <header class="topbar">
+      <div class="identity"><div class="mark">SC</div><div><div class="title">Stripchat Recorder</div><div class="subtitle">JP production console</div></div></div>
+      <div class="connection"><span id="connection-dot" class="dot"></span><span id="connection-text">连接中</span></div>
+    </header>
+    <div id="alert" class="alert" role="alert"></div>
 
-        <!-- Overview -->
-        <div class="card">
-            <h2>运行概览</h2>
-            <div class="stat-item">
-                <span class="stat-label">Web 端口</span>
-                <span class="stat-value" id="port">{{ port }}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">上传目录</span>
-                <code id="up-dir">{{ up_directory }}</code>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">重复模特</span>
-                <span class="stat-value" id="repeated-models" style="color: var(--warning)">-</span>
-            </div>
-        </div>
+    <section class="metrics" aria-label="运行摘要">
+      <div class="metric"><span class="metric-label">录制中</span><strong id="recording-count" class="metric-value">-</strong><span id="checking-note" class="metric-note">检查中 -</span></div>
+      <div class="metric"><span class="metric-label">Wanted</span><strong id="wanted-count" class="metric-value">-</strong><span id="paused-note" class="metric-note">暂停 -</span></div>
+      <div class="metric"><span class="metric-label">上传队列</span><strong id="queue-count" class="metric-value">-</strong><span id="queue-bytes" class="metric-note">-</span></div>
+      <div class="metric"><span class="metric-label">磁盘可用</span><strong id="disk-free" class="metric-value">-</strong><span id="disk-note" class="metric-note">-</span></div>
+      <div class="metric"><span class="metric-label">服务运行</span><strong id="uptime" class="metric-value">-</strong><span id="version" class="metric-note">-</span></div>
+    </section>
 
-        <!-- Stats -->
-        <div class="card">
-            <h2>统计数据</h2>
-            <div class="stat-item">
-                <span class="stat-label">活跃检测线程</span>
-                <span class="stat-value" id="hilos-count">-</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">正在录制</span>
-                <span class="stat-value" id="recording-count">-</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">Wanted 列表</span>
-                <span class="stat-value" id="wanted-count">-</span>
-            </div>
-            <a href="/edit_wanted" class="btn btn-primary" style="width: 100%; margin-top: 10px; box-sizing: border-box;">编辑 Wanted 列表</a>
-        </div>
+    <section class="section">
+      <div class="section-head"><h2>正在录制</h2><span id="recording-summary" class="subtitle">0 个任务</span></div>
+      <div class="section-body">
+        <table><thead><tr><th style="width:18%">模特</th><th style="width:36%">文件</th><th style="width:16%">大小</th><th style="width:18%">时长</th><th style="width:12%">操作</th></tr></thead><tbody id="recordings"></tbody></table>
+        <div id="recordings-empty" class="empty">当前没有录制任务</div>
+      </div>
+    </section>
 
-        <!-- Storage -->
-        <div class="card">
-            <h2>本地存储</h2>
-            <div class="stat-item">
-                <span class="stat-label">已使用 / 总容量</span>
-                <span class="stat-value"><span id="storage-used">-</span> / <span id="storage-total">-</span> GB</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">剩余空间</span>
-                <span class="stat-value" id="storage-free">-</span> GB
-            </div>
-            <div style="margin-top: 10px;">
-                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px;">
-                    <span class="stat-label">使用率</span>
-                    <span class="stat-value" id="storage-percent">-</span>
-                </div>
-                <div class="progress-bg">
-                    <div id="storage-bar" class="progress-fill" style="width: 0%"></div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Monitor Status List -->
-        <div class="card full-width">
-             <h2>监控状态 (<span id="monitor-count">Live Status</span>)</h2>
-             <div id="monitor-list">
-                 <div style="text-align:center; padding:20px; color:var(--text-sub);">加载中...</div>
-             </div>
-        </div>
+    <section class="section">
+      <div class="section-head"><h2>模型状态</h2><div class="section-tools"><select id="status-filter" aria-label="状态筛选"><option value="all">全部状态</option><option value="active">在线 / 录制</option><option value="paused">已暂停</option><option value="error">异常</option><option value="offline">离线</option></select><a class="link-btn" href="{{.base_path}}/wanted">管理 Wanted</a></div></div>
+      <div class="section-body"><div id="models" class="models"></div><div id="models-empty" class="empty">暂无模型状态</div></div>
+    </section>
 
-        <!-- Settings -->
-        <div class="card">
-            <h2>分段录制设置</h2>
-            <form action="/set_segment_duration" method="post" class="segment-form" style="display: flex; gap: 10px; align-items: center;">
-                <label for="duration" class="stat-label">时长(分钟):</label>
-                <input type="number" id="duration" name="duration" value="{{ segment_duration }}" min="1" required>
-                <button type="submit" class="btn btn-primary">保存</button>
-            </form>
-            <p style="margin-top: 12px; font-size: 0.85rem; color: var(--text-sub);">
-                当前: 每 <strong id="current-segment" style="color: var(--text-main)">{{ segment_duration }}</strong> 分钟自动分段。
-            </p>
-        </div>
-
-        <!-- Recording List -->
-        <div class="card full-width">
-            <h2>正在录制 (<span id="list-count">0</span>)</h2>
-            <div class="table-container">
-                <table id="recording-table">
-                    <thead>
-                        <tr>
-                            <th>模特名</th>
-                            <th>文件名</th>
-                            <th>大小</th>
-                            <th>已录制时长</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="recording-tbody">
-                        <!-- Content injected by JS -->
-                    </tbody>
-                </table>
-                <div id="empty-state" class="empty-state" style="display: none;">
-                    当前没有模特正在录制
-                </div>
-            </div>
-        </div>
+    <div class="split">
+      <section class="section"><div class="section-head"><h2>上传队列</h2><span id="upload-state" class="status">-</span></div><div class="section-body"><dl class="kv"><dt>队列文件</dt><dd id="upload-files">-</dd><dt>队列大小</dt><dd id="upload-bytes">-</dd><dt>最近成功</dt><dd id="upload-success">-</dd><dt>最近错误</dt><dd id="upload-error">-</dd></dl></div></section>
+      <section class="section"><div class="section-head"><h2>磁盘</h2><span id="disk-percent" class="subtitle">-</span></div><div class="section-body"><dl class="kv"><dt>总容量</dt><dd id="disk-total">-</dd><dt>已使用</dt><dd id="disk-used">-</dd><dt>可用</dt><dd id="disk-available">-</dd></dl><div class="progress"><span id="disk-bar"></span></div></div></section>
     </div>
 
-    <script>
-        function updateClock() {
-            const now = new Date();
-            document.getElementById('clock').innerText = now.toLocaleTimeString();
-        }
-        setInterval(updateClock, 1000);
-        updateClock();
-
-        function formatBytes(bytes, decimals = 2) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const dm = decimals < 0 ? 0 : decimals;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-        }
-
-        async function fetchStatus() {
-            try {
-                const response = await fetch('/api/status');
-                const data = await response.json();
-                
-                // Update basic stats
-                document.getElementById('web-status-text').innerText = data.web_status || 'Running';
-                document.getElementById('port').innerText = data.port;
-                document.getElementById('up-dir').innerText = data.up_directory;
-                
-                const repeated = data.repeatedModels.length > 0 ? data.repeatedModels.join(', ') : '无';
-                document.getElementById('repeated-models').innerText = repeated;
-                
-                document.getElementById('hilos-count').innerText = data.hilos_count;
-                document.getElementById('recording-count').innerText = data.recording_info.length;
-                document.getElementById('list-count').innerText = data.recording_info.length;
-                document.getElementById('wanted-count').innerText = data.counterModel;
-                
-                // Update storage
-                const s = data.storage_info.local;
-                if (s) {
-                    document.getElementById('storage-used').innerText = s.used;
-                    document.getElementById('storage-total').innerText = s.total;
-                    document.getElementById('storage-free').innerText = s.free;
-                    document.getElementById('storage-percent').innerText = s.percent_used + '%';
-                    
-                    const bar = document.getElementById('storage-bar');
-                    bar.style.width = s.percent_used + '%';
-                    bar.className = 'progress-fill';
-                    if (s.percent_used > 90) bar.classList.add('danger');
-                    else if (s.percent_used > 70) bar.classList.add('warning');
-                }
-
-                // Update settings text
-                document.getElementById('current-segment').innerText = data.segment_duration;
-
-                // Update table
-                const tbody = document.getElementById('recording-tbody');
-                const emptyState = document.getElementById('empty-state');
-                const table = document.getElementById('recording-table');
-
-                if (data.recording_info.length === 0) {
-                    table.style.display = 'none';
-                    emptyState.style.display = 'block';
-                } else {
-                    table.style.display = 'table';
-                    emptyState.style.display = 'none';
-                    
-                    // Rebuild table rows
-                    let html = '';
-                    data.recording_info.forEach(model => {
-                        html += `
-                            <tr>
-                                <td>
-                                    <div style="font-weight: 500;">${model.name}</div>
-                                </td>
-                                <td style="color: var(--text-sub); font-size: 0.9em;">
-                                    ${model.file}
-                                </td>
-                                <td><span style="font-family: monospace;">${model.size}</span></td>
-                                <td>
-                                    <span class="status-badge">
-                                        <span class="status-dot"></span>
-                                        ${model.elapsed_time}
-                                    </span>
-                                </td>
-                                <td>
-                                    <form action="/stop_recording/${model.name}" method="post" onsubmit="return confirm('确定停止 ${model.name}?');">
-                                        <button type="submit" class="btn btn-danger" style="padding: 4px 10px; font-size: 0.8rem;">停止</button>
-                                    </form>
-                                </td>
-                            </tr>
-                        `;
-                    });
-                    tbody.innerHTML = html;
-                }
-                
-                // Update Monitor List (New Section)
-                const monitorDiv = document.getElementById('monitor-list');
-                const modelStatus = data.model_status || {};
-                // Combine wanted list with status
-                // We don't have the full wanted list in this API response, but repeatedModels + recording + hilos roughly covers active checks.
-                // Better to fetch wanted list? No, let's use what we have in model_status which accumulates all checked models.
-                
-                if (monitorDiv) {
-                    const statusKeys = Object.keys(modelStatus).sort();
-                    if (statusKeys.length === 0) {
-                        monitorDiv.innerHTML = '<div style="color:var(--text-sub); padding:10px;">暂无监控数据</div>';
-                    } else {
-                        let monHtml = '<div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px;">';
-                        statusKeys.forEach(model => {
-                            const st = modelStatus[model];
-                            let badgeClass = 'status-badge'; // default green-ish
-                            let colorStyle = '';
-                            
-                            if (st === 'public') {
-                                colorStyle = 'background: rgba(16, 185, 129, 0.1); color: #10b981;';
-                            } else if (st === 'private' || st === 'group') {
-                                colorStyle = 'background: rgba(245, 158, 11, 0.1); color: #f59e0b;';
-                            } else if (st === 'off' || st === 'offline') {
-                                colorStyle = 'background: rgba(148, 163, 184, 0.1); color: #94a3b8;';
-                            } else {
-                                colorStyle = 'background: rgba(99, 102, 241, 0.1); color: #6366f1;';
-                            }
-                            
-                            monHtml += `
-                                <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; font-size: 0.9rem; display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="font-weight: 500; overflow:hidden; text-overflow:ellipsis;">${model}</span>
-                                    <span style="padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; ${colorStyle}">
-                                        ${st}
-                                    </span>
-                                </div>
-                            `;
-                        });
-                        monHtml += '</div>';
-                        monitorDiv.innerHTML = monHtml;
-                    }
-                }
-
-            } catch (err) {
-                console.error('Update failed', err);
-            }
-        }
-
-        // Poll every 2 seconds
-        setInterval(fetchStatus, 2000);
-        fetchStatus(); // Initial load
-    </script>
+    <section class="section"><div class="section-head"><h2>设置</h2></div><div class="section-body"><form id="settings-form" class="settings"><div class="field"><label for="segment-minutes">分段时长（分钟）</label><input id="segment-minutes" type="number" min="1" max="1440" value="{{.segment_minutes}}" required></div><button class="primary-btn" type="submit">保存设置</button></form><p id="settings-result" class="hint"></p></div></section>
+  </main>
+  <script>
+    (() => {
+      const body = document.body;
+      const base = body.dataset.basePath;
+      const csrf = body.dataset.csrfToken;
+      const byId = id => document.getElementById(id);
+      const state = { data: null, timer: null, controller: null };
+      const text = (id, value) => { byId(id).textContent = value; };
+      const node = (tag, className, value) => { const item = document.createElement(tag); if (className) item.className = className; if (value !== undefined) item.textContent = value; return item; };
+      const bytes = value => { const n = Number(value || 0); if (!n) return '0 B'; const units = ['B','KiB','MiB','GiB','TiB']; const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1); return `${(n / Math.pow(1024, i)).toFixed(i ? 1 : 0)} ${units[i]}`; };
+      const duration = seconds => { let n = Math.max(0, Number(seconds || 0)); const d = Math.floor(n / 86400); n %= 86400; const h = Math.floor(n / 3600); n %= 3600; const m = Math.floor(n / 60); return d ? `${d}天 ${h}小时` : h ? `${h}小时 ${m}分` : `${m}分`; };
+      const when = value => value ? new Date(value).toLocaleString('zh-CN', {hour12:false}) : '-';
+      const errorStates = new Set(['not_found','cloudflare_forbidden','rate_limited','network','invalid_response','server_error','http_error','configuration_error','error','uncertain','auth_error','flood_lock','timeout','blocked']);
+      const statusClass = value => errorStates.has(value) ? 'error' : value;
+      function setConnection(ok, message) { byId('connection-dot').className = `dot ${ok ? 'ok' : 'bad'}`; text('connection-text', message); byId('alert').classList.toggle('show', !ok); if (!ok) text('alert', message); }
+      async function request(path, options = {}) { const controller = new AbortController(); state.controller = controller; const timeout = setTimeout(() => controller.abort(), 8000); try { const response = await fetch(`${base}${path}`, {...options, signal: controller.signal, headers:{'Accept':'application/json', ...(options.body ? {'Content-Type':'application/json'} : {}), ...(options.method && options.method !== 'GET' ? {'X-CSRF-Token':csrf} : {}), ...(options.headers || {})}}); const payload = await response.json().catch(() => ({})); if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`); return payload; } finally { clearTimeout(timeout); } }
+      async function mutate(path, method, payload) { await request(path, {method, body: payload === undefined ? undefined : JSON.stringify(payload)}); await poll(); }
+      function renderRecordings(items) { const target = byId('recordings'); target.replaceChildren(); byId('recordings-empty').hidden = items.length > 0; text('recording-summary', `${items.length} 个任务`); for (const item of items) { const row = document.createElement('tr'); const values = [["模特",item.name,''],["文件",item.file,'mono'],["大小",bytes(item.bytes),'mono'],["时长",duration(item.elapsed_seconds),'']]; for (const [label,value,klass] of values) { const cell=node('td',klass,value); cell.dataset.label=label; row.append(cell); } const action=node('td'); action.dataset.label='操作'; const button=node('button','quiet-btn','暂停'); button.type='button'; button.title=`暂停 ${item.name}`; button.addEventListener('click', () => mutate(`/api/models/${encodeURIComponent(item.name)}/pause`,'POST').catch(showError)); action.append(button); row.append(action); target.append(row); } }
+      function filterModel(item, filter) { if (filter === 'all') return true; if (filter === 'active') return item.recording || item.status === 'public'; if (filter === 'paused') return item.paused; if (filter === 'error') return errorStates.has(item.status); if (filter === 'offline') return !item.recording && !item.paused && !errorStates.has(item.status) && item.status !== 'public'; return true; }
+      function renderModels(items) { const filter=byId('status-filter').value; const visible=items.filter(item => filterModel(item,filter)); const target=byId('models'); target.replaceChildren(); byId('models-empty').hidden=visible.length>0; for (const item of visible) { const box=node('div','model'); box.append(node('div','model-name',item.name)); const badge=node('span',`status ${statusClass(item.status)}`,item.status); box.append(badge); if (item.error) { const err=node('div','model-error',item.error); err.title=item.error; box.append(err); } const button=node('button','model-action',item.paused ? '▶' : 'Ⅱ'); button.type='button'; button.title=item.paused ? `恢复 ${item.name}` : `暂停 ${item.name}`; button.setAttribute('aria-label',button.title); button.addEventListener('click',()=>mutate(`/api/models/${encodeURIComponent(item.name)}/${item.paused?'resume':'pause'}`,'POST').catch(showError)); box.append(button); target.append(box); } }
+      function render(data) { state.data=data; const manager=data.manager; const paused=manager.models.filter(item=>item.paused).length; text('recording-count',manager.recordings.length); text('checking-note',`检查中 ${manager.checking_count}`); text('wanted-count',manager.wanted_count); text('paused-note',`暂停 ${paused}`); text('queue-count',data.upload.queue_files); text('queue-bytes',bytes(data.upload.queue_bytes)); text('disk-free',bytes(data.disk.free_bytes)); text('disk-note',`使用 ${data.disk.used_percent}%`); text('uptime',duration(data.app.uptime_seconds)); text('version',data.app.version); renderRecordings(manager.recordings); renderModels(manager.models); text('upload-files',String(data.upload.queue_files)); text('upload-bytes',bytes(data.upload.queue_bytes)); text('upload-success',data.upload.last_success ? `${data.upload.last_success.path} · ${when(data.upload.last_success.at)}` : '-'); const uploadError=data.upload.last_error; text('upload-error',uploadError ? uploadError.message : '-'); byId('upload-error').classList.toggle('error-text',Boolean(uploadError)); const uploadState=byId('upload-state'); uploadState.textContent=data.upload.state; uploadState.className=`status ${statusClass(data.upload.state)}`; text('disk-total',bytes(data.disk.total_bytes)); text('disk-used',bytes(data.disk.used_bytes)); text('disk-available',bytes(data.disk.free_bytes)); text('disk-percent',`${data.disk.used_percent}% 已使用`); const bar=byId('disk-bar'); bar.style.width=`${Math.min(100,data.disk.used_percent)}%`; bar.className=data.disk.used_percent>90?'danger':data.disk.used_percent>75?'warn':''; byId('segment-minutes').value=data.segment_minutes; }
+      function showError(error) { setConnection(false, error.name === 'AbortError' ? '请求超时，正在重试' : `服务失联：${error.message}`); }
+      async function poll() { if (state.controller) state.controller.abort(); try { const data=await request('/api/status'); render(data); setConnection(true,`已连接 · ${new Date().toLocaleTimeString('zh-CN',{hour12:false})}`); } catch(error) { showError(error); } finally { clearTimeout(state.timer); state.timer=setTimeout(poll,document.hidden?20000:4000); } }
+      byId('status-filter').addEventListener('change',()=>state.data&&renderModels(state.data.manager.models));
+      byId('settings-form').addEventListener('submit',async event=>{event.preventDefault(); const minutes=Number(byId('segment-minutes').value); try { await mutate('/api/settings/segment-duration','PUT',{minutes}); text('settings-result','设置已保存'); byId('settings-result').className='hint'; } catch(error) { text('settings-result',error.message); byId('settings-result').className='hint error-text'; }});
+      document.addEventListener('visibilitychange',()=>{clearTimeout(state.timer); state.timer=setTimeout(poll,document.hidden?20000:200);});
+      poll();
+    })();
+  </script>
 </body>
 </html>

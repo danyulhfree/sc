@@ -1,2 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+.idea/
 .DS_Store
-.idea
+/sc
+/captures/
+/up/
+/logs/
+/move_sh.log
+/file_cleanup.log
+/*_manual_*.log

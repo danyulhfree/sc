@@ -1,0 +1,19 @@
+[Unit]
+Description=SC Stripchat recorder
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/sc/current
+ExecStart=/root/sc/current/sc -config /root/sc/config/config.conf -templates /root/sc/current/templates -keys-dir /root/sc/current
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=15min
+StandardOutput=append:/root/sc/data/logs/recorder.service.log
+StandardError=append:/root/sc/data/logs/recorder.service.log
+
+[Install]
+WantedBy=multi-user.target

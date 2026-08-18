@@ -1,41 +1,44 @@
-# StripchatRecorder 
+# SC Recorder
 
-All credits to @beaston02 and @ahsand97
+Stripchat public-stream recorder with a localhost-only operations dashboard and a
+shared 1Fichier upload queue.
 
-This is script to automate the recording of public webcam shows from stripchat.com. 
+## Build and test
 
-## Requirements
-
-Requires python3.5 or newer. You can grab python3.5.2 from https://www.python.org/downloads/release/python-352/
-
-to install required modules, run:
+```bash
+gofmt -w ./cmd ./internal
+go test ./...
+go test -race ./...
+go vet ./...
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o sc ./cmd/sc
 ```
-python3.5 -m pip install streamlink bs4 lxml gevent
+
+Run Python checks from the project virtual environment:
+
+```bash
+source ~/.venv/bin/activate
+python -m py_compile rclone_upload.py
+python -m unittest -v test_rclone_upload.py
 ```
 
+## Runtime
 
-Edit the config file (config.conf) to point to the directory you want to record to, where your "wanted" file is located, which genders, and the interval between checks (in seconds)
-
-Add models to the "wanted.txt" file (only one model per line). The model should match the models name in their chatrooms URL (https://stripchat.com/{modelname}/). T clarify this, it should only be the "modelname" portion, not the entire url.
-
-## Proxy (optional)
-
-If your server/network gets `403` / DNS errors when opening HLS URLs, set an outbound proxy:
-
-- `config.conf` → `[settings]` → `proxy = http://127.0.0.1:3247`
-- or environment variable: `SC_PROXY=http://127.0.0.1:3247`
-
-## MOUFLON v2 keys (optional)
-
-Some streams use MOUFLON v2 segment obfuscation. You can provide keys in
-`stripchat_mouflon_keys.json` (same folder as the script) to enable decoding.
-
-Supported formats:
-- plain key string: `"<pdkey>"` (will be SHA256-hashed; also used as `pdkey` for auth)
-- raw sha256 bytes: `"sha256:<hex>"` (32 bytes hex)
-- derived XOR mask bytes: `"mask:<hex>"`
-
-If you have HAR captures, you can derive masks:
+```bash
+./sc -config ./config.conf -templates ./templates -keys-dir .
 ```
-python derive_mouflon_keys_from_har.py sc.har sc2.har sc3.har
-```
+
+The Web server is restricted to the configured localhost address. The default
+dashboard is `http://127.0.0.1:18080/sc/`; external TLS and authentication belong
+to the reverse proxy.
+
+`SC_PROXY` optionally overrides `[settings] proxy`. HTTP(S) and SOCKS5 URLs are
+supported. Leave both values empty for a direct Stripchat connection.
+
+## Upload queue
+
+`do.sh` supervises completed MP4 files in `up/`. It deletes MP4 files smaller
+than 5 MiB, then calls `fic_upload_once.sh`, which acquires the host-wide
+1Fichier guard and invokes `/root/u/fic_upload.py` with the fixed SC destination
+`1f:milo/strip`. Only files confirmed by the official API client are removed.
+
+Systemd units and the Nginx location snippet are in `deploy/`.
