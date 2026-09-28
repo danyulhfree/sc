@@ -18,12 +18,48 @@ import (
 	"github.com/mio/sc/internal/logger"
 )
 
-func TestCheckOnlineDecodesStructuredJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"cam":{"isCamAvailable":true,"streamName":"stream-123"},"user":{"user":{"status":"public"}}}`)
+// modelPage renders a model page the way Stripchat does: the numeric id sits in the
+// preloaded state next to the username, whose case may differ from the wishlist.
+func modelPage(id int64, username string) string {
+	return fmt.Sprintf(`<html><script>window.__PRELOADED_STATE__ = {"viewCam":{"model":{"id":%d,"username":%q}},"other":{"id":7,"username":"someone"}};</script></html>`, id, username)
+}
+
+type fakeStripchat struct {
+	*httptest.Server
+	pages atomic.Int32
+}
+
+// newFakeStripchat serves /model as a model page with id 42 and the id-based cam
+// endpoint through cam; the retired username endpoint answers 418 like the real site.
+func newFakeStripchat(t *testing.T, cam http.HandlerFunc) *fakeStripchat {
+	t.Helper()
+	fake := &fakeStripchat{}
+	fake.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/model":
+			fake.pages.Add(1)
+			fmt.Fprint(w, modelPage(42, "MoDeL"))
+		case "/api/front/v2/models/42/cam":
+			cam(w, request)
+		case "/api/front/v2/models/username/model/cam":
+			w.WriteHeader(http.StatusTeapot)
+		default:
+			http.NotFound(w, request)
+		}
 	}))
-	defer server.Close()
+	t.Cleanup(fake.Close)
+	return fake
+}
+
+func jsonReply(body string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}
+}
+
+func TestCheckOnlineDecodesStructuredJSON(t *testing.T) {
+	server := newFakeStripchat(t, jsonReply(`{"cam":{"isCamAvailable":true,"streamName":"stream-123"},"user":{"user":{"status":"public","username":"MoDeL"}}}`))
 	r := NewWithOptions("model", Options{HTTPClient: server.Client(), APIBaseURL: server.URL})
 	info, err := r.CheckOnline(context.Background())
 	if err != nil {
@@ -35,11 +71,7 @@ func TestCheckOnlineDecodesStructuredJSON(t *testing.T) {
 }
 
 func TestCheckOnlineTreatsEmptyCamArrayAsOffline(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"cam":[],"user":{"user":{"status":"off"}}}`)
-	}))
-	defer server.Close()
+	server := newFakeStripchat(t, jsonReply(`{"cam":[],"user":{"user":{"status":"off"}}}`))
 	r := NewWithOptions("model", Options{HTTPClient: server.Client(), APIBaseURL: server.URL})
 	info, err := r.CheckOnline(context.Background())
 	if err != nil {
@@ -54,11 +86,10 @@ func TestCheckOnlineClassifiesHTTPFailures(t *testing.T) {
 	tests := []struct {
 		code int
 		kind string
-	}{{404, "not_found"}, {403, "cloudflare_forbidden"}, {429, "rate_limited"}, {503, "server_error"}}
+	}{{404, "not_found"}, {403, "cloudflare_forbidden"}, {418, "blocked"}, {429, "rate_limited"}, {503, "server_error"}, {400, "http_error"}}
 	for _, test := range tests {
 		t.Run(test.kind, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) { w.WriteHeader(test.code) }))
-			defer server.Close()
+			server := newFakeStripchat(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(test.code) })
 			r := NewWithOptions("model", Options{HTTPClient: server.Client(), APIBaseURL: server.URL})
 			_, err := r.CheckOnline(context.Background())
 			var checkErr *CheckError
@@ -149,6 +180,8 @@ func newHLSServer(t *testing.T, masters *atomic.Int32, withSegments bool) *httpt
 	var sequence atomic.Int32
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		switch {
+		case request.URL.Path == "/model":
+			fmt.Fprint(w, modelPage(42, "model"))
 		case strings.Contains(request.URL.Path, "/api/front/v2/models/"):
 			fmt.Fprint(w, `{"cam":{"isCamAvailable":true,"streamName":"stream"},"user":{"user":{"status":"public"}}}`)
 		case strings.HasSuffix(request.URL.Path, "/master/stream_auto.m3u8"):
@@ -192,4 +225,89 @@ func mustURL(t *testing.T, value string) *url.URL {
 		t.Fatal(err)
 	}
 	return parsed
+}
+
+// The retired username endpoint must never be relied on again: every check goes
+// through the id-based endpoint, and the page is fetched once per model.
+func TestCheckOnlineResolvesIDOnceAndUsesIDEndpoint(t *testing.T) {
+	var camPaths []string
+	server := newFakeStripchat(t, func(w http.ResponseWriter, request *http.Request) {
+		camPaths = append(camPaths, request.URL.Path)
+		jsonReply(`{"cam":[],"user":{"user":{"status":"off","username":"model"}}}`)(w, request)
+	})
+	r := NewWithOptions("model", Options{HTTPClient: server.Client(), APIBaseURL: server.URL})
+	for i := 0; i < 3; i++ {
+		if _, err := r.CheckOnline(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if server.pages.Load() != 1 || len(camPaths) != 3 || camPaths[0] != "/api/front/v2/models/42/cam" {
+		t.Fatalf("pages=%d cam=%v", server.pages.Load(), camPaths)
+	}
+}
+
+// A 404 or a payload for someone else means the cached id is no longer this model's:
+// it is dropped so the next check resolves it again.
+func TestStaleModelIDIsResolvedAgain(t *testing.T) {
+	for name, cam := range map[string]http.HandlerFunc{
+		"not-found":  func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) },
+		"other-user": jsonReply(`{"cam":[],"user":{"user":{"status":"off","username":"someone-else"}}}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := newFakeStripchat(t, cam)
+			r := NewWithOptions("model", Options{HTTPClient: server.Client(), APIBaseURL: server.URL})
+			for i := 0; i < 2; i++ {
+				if _, err := r.CheckOnline(context.Background()); err == nil {
+					t.Fatal("stale id accepted")
+				}
+			}
+			if server.pages.Load() != 2 {
+				t.Fatalf("page fetched %d times, want 2", server.pages.Load())
+			}
+		})
+	}
+}
+
+// Stripchat redirects a name that is no longer a model to its user profile.
+func TestFormerModelIsNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/model" {
+			http.Redirect(w, request, "/user/model", http.StatusFound)
+			return
+		}
+		fmt.Fprint(w, `<html>profile</html>`)
+	}))
+	defer server.Close()
+	r := NewWithOptions("model", Options{HTTPClient: server.Client(), APIBaseURL: server.URL})
+	_, err := r.CheckOnline(context.Background())
+	var checkErr *CheckError
+	if !errors.As(err, &checkErr) || checkErr.Kind != "not_found" {
+		t.Fatalf("unexpected error: %#v", err)
+	}
+}
+
+func TestModelIDFromPageMatchesUsernameOnly(t *testing.T) {
+	page := []byte(modelPage(218445934, "_ASUnyan"))
+	if id := modelIDFromPage(page, "_asunyan"); id != 218445934 {
+		t.Fatalf("id=%d", id)
+	}
+	if id := modelIDFromPage(page, "nobody"); id != 0 {
+		t.Fatalf("id for absent model: %d", id)
+	}
+	if id := modelIDFromPage([]byte("<html>no state</html>"), "model"); id != 0 {
+		t.Fatalf("id without state: %d", id)
+	}
+}
+
+func TestDeletedModelReportsReason(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		fmt.Fprint(w, `<script>window.__PRELOADED_STATE__ = {"viewCamBase":{"error":{"type":"deletedPopular","model":{"username":"model"}}}};</script>`)
+	}))
+	defer server.Close()
+	r := NewWithOptions("model", Options{HTTPClient: server.Client(), APIBaseURL: server.URL})
+	_, err := r.CheckOnline(context.Background())
+	var checkErr *CheckError
+	if !errors.As(err, &checkErr) || checkErr.Kind != "not_found" || !strings.Contains(err.Error(), "deletedPopular") {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }

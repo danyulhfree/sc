@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,10 @@ const (
 )
 
 var errNoData = errors.New("stream produced no data")
+
+// The model page embeds its initial state as JSON; the model's numeric id is taken
+// from the object whose username matches, which the page renders for any visitor.
+var preloadedStatePattern = regexp.MustCompile(`(?s)window\.__PRELOADED_STATE__\s*=\s*(\{.*?\})\s*;?\s*</script>`)
 
 var DefaultHeaders = map[string]string{
 	"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -117,6 +122,7 @@ type Recorder struct {
 	httpClient       *http.Client
 	apiBaseURL       string
 	hlsBaseURL       string
+	modelID          int64
 	firstDataTimeout time.Duration
 	noDataTimeout    time.Duration
 	maxRestarts      int
@@ -579,8 +585,139 @@ func (r *Recorder) moveFileToUp(path string) error {
 	return nil
 }
 
+func httpCheckError(code int) *CheckError {
+	kind := "http_error"
+	switch code {
+	case http.StatusNotFound:
+		kind = "not_found"
+	case http.StatusForbidden:
+		kind = "cloudflare_forbidden"
+	case http.StatusTeapot:
+		// Stripchat answers 418 on endpoints it refuses to serve to anyone.
+		kind = "blocked"
+	case http.StatusTooManyRequests:
+		kind = "rate_limited"
+	default:
+		if code >= 500 {
+			kind = "server_error"
+		}
+	}
+	return &CheckError{Kind: kind, StatusCode: code}
+}
+
+// resolveModelID maps the wishlist name to Stripchat's numeric model id. Lookups by
+// username (/api/front/v2/models/username/<name>/cam) now answer 418 to every client,
+// browsers included, while the id-based endpoint still serves the same payload. The
+// id is cached; it is dropped whenever the cam endpoint stops confirming it.
+func (r *Recorder) resolveModelID(ctx context.Context) (int64, *CheckError) {
+	r.mu.RLock()
+	id := r.modelID
+	r.mu.RUnlock()
+	if id != 0 {
+		return id, nil
+	}
+	response, err := r.doRequest(ctx, r.apiBaseURL+"/"+url.PathEscape(r.model))
+	if err != nil {
+		return 0, &CheckError{Kind: "network", Err: err}
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return 0, httpCheckError(response.StatusCode)
+	}
+	// A name that no longer belongs to a model is redirected to its user profile.
+	if !strings.EqualFold(strings.Trim(response.Request.URL.Path, "/"), r.model) {
+		return 0, &CheckError{Kind: "not_found", Err: errors.New("not a model page")}
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, requestBodyLimit))
+	if err != nil {
+		return 0, &CheckError{Kind: "network", Err: err}
+	}
+	id = modelIDFromPage(body, r.model)
+	if id == 0 {
+		reason := "model id missing from page"
+		if kind := pageErrorType(body); kind != "" {
+			// e.g. "deletedPopular" for a deleted account
+			reason = "model page reports " + kind
+		}
+		return 0, &CheckError{Kind: "not_found", Err: errors.New(reason)}
+	}
+	r.mu.Lock()
+	r.modelID = id
+	r.mu.Unlock()
+	return id, nil
+}
+
+func (r *Recorder) forgetModelID() {
+	r.mu.Lock()
+	r.modelID = 0
+	r.mu.Unlock()
+}
+
+// pageErrorType is the reason the page gives for not showing a model, if any.
+func pageErrorType(page []byte) string {
+	match := preloadedStatePattern.FindSubmatch(page)
+	if match == nil {
+		return ""
+	}
+	var state struct {
+		ViewCamBase struct {
+			Error struct {
+				Type string `json:"type"`
+			} `json:"error"`
+		} `json:"viewCamBase"`
+	}
+	if json.Unmarshal(match[1], &state) != nil {
+		return ""
+	}
+	return state.ViewCamBase.Error.Type
+}
+
+func modelIDFromPage(page []byte, model string) int64 {
+	match := preloadedStatePattern.FindSubmatch(page)
+	if match == nil {
+		return 0
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(match[1])))
+	decoder.UseNumber()
+	var state any
+	if decoder.Decode(&state) != nil {
+		return 0
+	}
+	var find func(any) int64
+	find = func(node any) int64 {
+		switch value := node.(type) {
+		case map[string]any:
+			if name, ok := value["username"].(string); ok && strings.EqualFold(name, model) {
+				if number, ok := value["id"].(json.Number); ok {
+					if id, err := number.Int64(); err == nil && id > 0 {
+						return id
+					}
+				}
+			}
+			for _, child := range value {
+				if id := find(child); id != 0 {
+					return id
+				}
+			}
+		case []any:
+			for _, child := range value {
+				if id := find(child); id != 0 {
+					return id
+				}
+			}
+		}
+		return 0
+	}
+	return find(state)
+}
+
 func (r *Recorder) CheckOnline(ctx context.Context) (OnlineInfo, error) {
-	endpoint := fmt.Sprintf("%s/api/front/v2/models/username/%s/cam", r.apiBaseURL, url.PathEscape(r.model))
+	id, checkErr := r.resolveModelID(ctx)
+	if checkErr != nil {
+		r.publishCheck(OnlineInfo{}, checkErr)
+		return OnlineInfo{}, checkErr
+	}
+	endpoint := fmt.Sprintf("%s/api/front/v2/models/%d/cam", r.apiBaseURL, id)
 	response, err := r.doRequest(ctx, endpoint)
 	if err != nil {
 		checkErr := &CheckError{Kind: "network", Err: err}
@@ -589,20 +726,10 @@ func (r *Recorder) CheckOnline(ctx context.Context) (OnlineInfo, error) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		kind := "http_error"
-		switch response.StatusCode {
-		case http.StatusNotFound:
-			kind = "not_found"
-		case http.StatusForbidden:
-			kind = "cloudflare_forbidden"
-		case http.StatusTooManyRequests:
-			kind = "rate_limited"
-		default:
-			if response.StatusCode >= 500 {
-				kind = "server_error"
-			}
+		if response.StatusCode == http.StatusNotFound {
+			r.forgetModelID()
 		}
-		checkErr := &CheckError{Kind: kind, StatusCode: response.StatusCode}
+		checkErr := httpCheckError(response.StatusCode)
 		r.publishCheck(OnlineInfo{}, checkErr)
 		return OnlineInfo{}, checkErr
 	}
@@ -611,13 +738,21 @@ func (r *Recorder) CheckOnline(ctx context.Context) (OnlineInfo, error) {
 		Cam  json.RawMessage `json:"cam"`
 		User struct {
 			User struct {
-				Status string `json:"status"`
+				Status   string `json:"status"`
+				Username string `json:"username"`
 			} `json:"user"`
 		} `json:"user"`
 	}
 	decoder := json.NewDecoder(io.LimitReader(response.Body, requestBodyLimit))
 	if err := decoder.Decode(&payload); err != nil {
 		checkErr := &CheckError{Kind: "invalid_response", Err: err}
+		r.publishCheck(OnlineInfo{}, checkErr)
+		return OnlineInfo{}, checkErr
+	}
+	// Guard against a wrongly resolved id: the payload must describe this model.
+	if name := payload.User.User.Username; name != "" && !strings.EqualFold(name, r.model) {
+		r.forgetModelID()
+		checkErr := &CheckError{Kind: "invalid_response", Err: fmt.Errorf("model id resolves to %q", name)}
 		r.publishCheck(OnlineInfo{}, checkErr)
 		return OnlineInfo{}, checkErr
 	}
