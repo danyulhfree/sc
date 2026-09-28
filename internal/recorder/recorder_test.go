@@ -311,3 +311,37 @@ func TestDeletedModelReportsReason(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// Stripchat sometimes serves the model page as a shell without the rendered state.
+// That is retried and, if it persists, reported as transient, never as not_found.
+func TestShellModelPageIsRetriedNotNotFound(t *testing.T) {
+	modelPageRetryDelay = time.Millisecond
+	for name, shells := range map[string]int32{"recovers": 2, "persists": 3} {
+		t.Run(name, func(t *testing.T) {
+			var pages atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				switch request.URL.Path {
+				case "/model":
+					if pages.Add(1) <= shells {
+						fmt.Fprint(w, `<html><script>window.__PRELOADED_STATE__ = {"config":{}};</script></html>`)
+						return
+					}
+					fmt.Fprint(w, modelPage(42, "model"))
+				case "/api/front/v2/models/42/cam":
+					jsonReply(`{"cam":[],"user":{"user":{"status":"off","username":"model"}}}`)(w, request)
+				}
+			}))
+			defer server.Close()
+			r := NewWithOptions("model", Options{HTTPClient: server.Client(), APIBaseURL: server.URL})
+			_, err := r.CheckOnline(context.Background())
+			var checkErr *CheckError
+			if shells < modelPageAttempts {
+				if err != nil || pages.Load() != shells+1 {
+					t.Fatalf("shell pages not retried: err=%v pages=%d", err, pages.Load())
+				}
+			} else if !errors.As(err, &checkErr) || checkErr.Kind != "page_unavailable" || pages.Load() != modelPageAttempts {
+				t.Fatalf("persistent shell misreported: err=%v pages=%d", err, pages.Load())
+			}
+		})
+	}
+}

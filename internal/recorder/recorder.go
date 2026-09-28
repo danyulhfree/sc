@@ -33,6 +33,10 @@ const (
 
 var errNoData = errors.New("stream produced no data")
 
+const modelPageAttempts = 3
+
+var modelPageRetryDelay = time.Second
+
 // The model page embeds its initial state as JSON; the model's numeric id is taken
 // from the object whose username matches, which the page renders for any visitor.
 var preloadedStatePattern = regexp.MustCompile(`(?s)window\.__PRELOADED_STATE__\s*=\s*(\{.*?\})\s*;?\s*</script>`)
@@ -616,6 +620,33 @@ func (r *Recorder) resolveModelID(ctx context.Context) (int64, *CheckError) {
 	if id != 0 {
 		return id, nil
 	}
+	// About one page in four is served as a bare shell without the rendered model
+	// state; that says nothing about the model, so it is retried, and if every
+	// attempt is a shell the check fails as transient rather than not_found.
+	var checkErr *CheckError
+	for attempt := 0; attempt < modelPageAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return 0, &CheckError{Kind: "network", Err: ctx.Err()}
+			case <-time.After(modelPageRetryDelay):
+			}
+		}
+		id, checkErr = r.fetchModelID(ctx)
+		if checkErr == nil || checkErr.Kind != "page_unavailable" {
+			break
+		}
+	}
+	if checkErr != nil {
+		return 0, checkErr
+	}
+	r.mu.Lock()
+	r.modelID = id
+	r.mu.Unlock()
+	return id, nil
+}
+
+func (r *Recorder) fetchModelID(ctx context.Context) (int64, *CheckError) {
 	response, err := r.doRequest(ctx, r.apiBaseURL+"/"+url.PathEscape(r.model))
 	if err != nil {
 		return 0, &CheckError{Kind: "network", Err: err}
@@ -632,19 +663,14 @@ func (r *Recorder) resolveModelID(ctx context.Context) (int64, *CheckError) {
 	if err != nil {
 		return 0, &CheckError{Kind: "network", Err: err}
 	}
-	id = modelIDFromPage(body, r.model)
-	if id == 0 {
-		reason := "model id missing from page"
-		if kind := pageErrorType(body); kind != "" {
-			// e.g. "deletedPopular" for a deleted account
-			reason = "model page reports " + kind
-		}
-		return 0, &CheckError{Kind: "not_found", Err: errors.New(reason)}
+	if id := modelIDFromPage(body, r.model); id != 0 {
+		return id, nil
 	}
-	r.mu.Lock()
-	r.modelID = id
-	r.mu.Unlock()
-	return id, nil
+	if kind := pageErrorType(body); kind != "" {
+		// The page states why no model is shown, e.g. "deletedPopular".
+		return 0, &CheckError{Kind: "not_found", Err: errors.New("model page reports " + kind)}
+	}
+	return 0, &CheckError{Kind: "page_unavailable", Err: errors.New("model page served without model state")}
 }
 
 func (r *Recorder) forgetModelID() {
