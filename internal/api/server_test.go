@@ -24,6 +24,11 @@ func TestBasePathCSRFAndRoutes(t *testing.T) {
 	assertStatus(t, server, http.MethodGet, "/sc/api/health", nil, "", http.StatusOK)
 	assertStatus(t, server, http.MethodGet, "/sc/api/status", nil, "", http.StatusOK)
 	assertStatus(t, server, http.MethodGet, "/sc/", nil, "", http.StatusOK)
+	assertStatus(t, server, http.MethodGet, "/sc/wanted", nil, "", http.StatusOK)
+	for _, asset := range []string{"jp-ui.css", "jp-ui.js", "sc.css", "sc.js", "wanted.js"} {
+		assertStatus(t, server, http.MethodGet, "/sc/static/"+asset, nil, "", http.StatusOK)
+	}
+	assertStatus(t, server, http.MethodGet, "/sc/static/", nil, "", http.StatusNotFound)
 
 	assertStatus(t, server, http.MethodPut, "/sc/api/settings/segment-duration", map[string]any{"minutes": 12}, "", http.StatusForbidden)
 	assertStatus(t, server, http.MethodPost, "/sc/api/wanted", map[string]any{"model": "../escape"}, server.csrfToken, http.StatusBadRequest)

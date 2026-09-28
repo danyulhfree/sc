@@ -2,97 +2,106 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SC Recorder</title>
-  <style>
-    :root{color-scheme:light;--bg:#f4f6f8;--surface:#fff;--ink:#17202a;--muted:#66727f;--line:#d9dee4;--accent:#087f5b;--accent-dark:#066747;--warn:#b35c00;--danger:#b42318;--blue:#1864ab;--shadow:0 1px 2px rgba(17,24,39,.06)}
-    *{box-sizing:border-box;letter-spacing:0}
-    html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px}
-    button,input,select{font:inherit}
-    button{cursor:pointer}
-    .shell{width:min(1280px,100%);margin:0 auto;padding:0 24px 40px}
-    .topbar{height:64px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
-    .identity{display:flex;align-items:center;gap:12px;min-width:0}.mark{display:grid;place-items:center;width:34px;height:34px;background:#123a32;color:#fff;font-weight:800;border-radius:6px}.title{font-size:17px;font-weight:700}.subtitle{color:var(--muted);font-size:12px;margin-top:2px}
-    .connection{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}.dot{width:8px;height:8px;border-radius:50%;background:#9aa4ae}.dot.ok{background:var(--accent)}.dot.bad{background:var(--danger)}
-    .alert{display:none;margin:14px 0 0;padding:10px 12px;border:1px solid #f0b4ae;background:#fff1f0;color:var(--danger);border-radius:5px}.alert.show{display:block}
-    .metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;background:var(--surface);border:1px solid var(--line);border-radius:6px;margin:18px 0;box-shadow:var(--shadow)}
-    .metric{min-width:0;padding:15px 18px;border-right:1px solid var(--line)}.metric:last-child{border-right:0}.metric-label{color:var(--muted);font-size:12px}.metric-value{display:block;margin-top:5px;font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.metric-note{display:block;margin-top:3px;color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .section{background:var(--surface);border:1px solid var(--line);border-radius:6px;margin-top:14px;box-shadow:var(--shadow);overflow:hidden}.section-head{min-height:52px;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line)}.section-head h2{font-size:14px;margin:0}.section-tools{display:flex;align-items:center;gap:8px;min-width:0}.section-body{padding:16px}
-    .link-btn,.primary-btn,.quiet-btn,.danger-btn{border-radius:5px;min-height:34px;padding:7px 11px;text-decoration:none;border:1px solid var(--line);background:#fff;color:var(--ink);display:inline-flex;align-items:center;justify-content:center;gap:6px}.primary-btn{background:var(--accent);border-color:var(--accent);color:#fff}.primary-btn:hover{background:var(--accent-dark)}.quiet-btn:hover,.link-btn:hover{background:#f5f7f8}.danger-btn{border-color:#e8b4af;color:var(--danger)}
-    select,input{height:34px;border:1px solid #bcc4cc;border-radius:5px;background:#fff;color:var(--ink);padding:5px 9px;min-width:0}input:focus,select:focus,button:focus-visible,a:focus-visible{outline:2px solid #74c0a9;outline-offset:2px}
-    table{width:100%;border-collapse:collapse;table-layout:fixed}th{text-align:left;color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;padding:0 10px 9px}td{padding:11px 10px;border-top:1px solid #edf0f2;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}th:first-child,td:first-child{padding-left:0}th:last-child,td:last-child{padding-right:0;text-align:right}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}.empty{color:var(--muted);padding:18px 0;text-align:center}
-    .status{display:inline-flex;align-items:center;gap:6px;max-width:100%;font-size:12px}.status::before{content:"";width:7px;height:7px;border-radius:50%;background:#9aa4ae;flex:0 0 auto}.status.recording::before,.status.public::before{background:var(--accent)}.status.paused::before,.status.private::before,.status.group::before{background:var(--warn)}.status.error::before{background:var(--danger)}
-    .models{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid #edf0f2;border-left:1px solid #edf0f2}.model{min-width:0;padding:11px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;border-right:1px solid #edf0f2;border-bottom:1px solid #edf0f2}.model-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.model-error{grid-column:1/-1;color:var(--danger);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.model-action{grid-row:1/3;grid-column:2;align-self:center;width:32px;height:32px;padding:0;border:1px solid var(--line);background:#fff;border-radius:5px;font-size:15px}.model-action:hover{background:#f4f6f8}
-    .split{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}.kv{display:grid;grid-template-columns:minmax(110px,1fr) minmax(0,2fr);gap:10px;padding:8px 0;border-bottom:1px solid #edf0f2}.kv:last-child{border-bottom:0}.kv dt{color:var(--muted)}.kv dd{margin:0;text-align:right;font-weight:600;overflow-wrap:anywhere}.progress{height:7px;background:#e8ecef;border-radius:4px;overflow:hidden;margin-top:12px}.progress span{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}.progress span.warn{background:var(--warn)}.progress span.danger{background:var(--danger)}
-    .settings{display:flex;align-items:end;gap:8px}.field{display:grid;gap:5px}.field label{font-size:12px;color:var(--muted)}.field input{width:120px}.hint{margin:10px 0 0;color:var(--muted);font-size:12px}.error-text{color:var(--danger)}
-    @media(max-width:820px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.metric{border-bottom:1px solid var(--line)}.metric:nth-child(2n){border-right:0}.metric:last-child{grid-column:1/-1;border-bottom:0}.split{grid-template-columns:1fr}.models{grid-template-columns:repeat(2,minmax(0,1fr))}}
-    @media(max-width:560px){.shell{padding:0 12px 28px}.topbar{height:auto;min-height:60px;padding:10px 0}.subtitle{display:none}.connection{max-width:44%;justify-content:flex-end;text-align:right}.metrics{margin:12px 0}.metric{padding:12px}.metric-value{font-size:19px}.section{margin-top:10px}.section-head{align-items:flex-start;flex-direction:column}.section-tools{width:100%}.section-tools select,.section-tools a{flex:1}.section-body{padding:12px}.models{grid-template-columns:1fr}table,thead,tbody,tr,th,td{display:block}thead{display:none}tbody{display:grid;gap:10px}tr{border:1px solid #e3e7ea;border-radius:5px;padding:9px}td{border:0;padding:3px 0!important;text-align:left!important;white-space:normal;overflow-wrap:anywhere}td::before{content:attr(data-label);display:inline-block;width:88px;color:var(--muted);font-size:11px}.settings{align-items:stretch;flex-direction:column}.field input{width:100%}.settings button{width:100%}}
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Stripchat 录制</title>
+  <script>try{var t=localStorage.getItem('jp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+  <link rel="stylesheet" href="{{.base_path}}/static/jp-ui.css">
+  <link rel="stylesheet" href="{{.base_path}}/static/sc.css">
 </head>
-<body data-base-path="{{.base_path}}" data-csrf-token="{{.csrf_token}}">
-  <main class="shell">
-    <header class="topbar">
-      <div class="identity"><div class="mark">SC</div><div><div class="title">Stripchat Recorder</div><div class="subtitle">JP production console</div></div></div>
-      <div class="connection"><span id="connection-dot" class="dot"></span><span id="connection-text">连接中</span></div>
-    </header>
-    <div id="alert" class="alert" role="alert"></div>
+<body class="jp" data-base-path="{{.base_path}}" data-csrf-token="{{.csrf_token}}">
+  <header class="jp-top">
+    <a class="jp-home" href="/" title="返回服务入口">← 入口</a>
+    <div class="jp-brand">Stripchat 录制</div>
+    <span class="jp-spacer"></span>
+    <span class="jp-conn" id="conn" data-state="loading">连接中…</span>
+    <button class="jp-btn icon sm ghost" id="theme" type="button"></button>
+  </header>
 
-    <section class="metrics" aria-label="运行摘要">
-      <div class="metric"><span class="metric-label">录制中</span><strong id="recording-count" class="metric-value">-</strong><span id="checking-note" class="metric-note">检查中 -</span></div>
-      <div class="metric"><span class="metric-label">Wanted</span><strong id="wanted-count" class="metric-value">-</strong><span id="paused-note" class="metric-note">暂停 -</span></div>
-      <div class="metric"><span class="metric-label">上传队列</span><strong id="queue-count" class="metric-value">-</strong><span id="queue-bytes" class="metric-note">-</span></div>
-      <div class="metric"><span class="metric-label">磁盘可用</span><strong id="disk-free" class="metric-value">-</strong><span id="disk-note" class="metric-note">-</span></div>
-      <div class="metric"><span class="metric-label">服务运行</span><strong id="uptime" class="metric-value">-</strong><span id="version" class="metric-note">-</span></div>
+  <main class="jp-main">
+    <div class="jp-banner" id="banner" role="alert" hidden></div>
+
+    <section class="jp-stats" aria-label="概况">
+      <div class="jp-stat" data-tone="live"><span class="jp-stat-label">正在录制</span><span class="jp-stat-value" id="stat-recording">—</span><span class="jp-stat-hint" id="stat-checking">—</span></div>
+      <div class="jp-stat" id="stat-wanted-card"><span class="jp-stat-label">Wanted</span><span class="jp-stat-value" id="stat-wanted">—</span><span class="jp-stat-hint" id="stat-wanted-hint">—</span></div>
+      <div class="jp-stat" id="stat-queue-card"><span class="jp-stat-label">上传队列</span><span class="jp-stat-value" id="stat-queue">—</span><span class="jp-stat-hint" id="stat-queue-hint">—</span></div>
+      <div class="jp-stat" id="stat-disk-card"><span class="jp-stat-label">磁盘可用</span><span class="jp-stat-value" id="stat-disk">—</span><span class="jp-stat-hint" id="stat-disk-hint">—</span></div>
+      <div class="jp-stat"><span class="jp-stat-label">服务运行</span><span class="jp-stat-value" id="stat-uptime">—</span><span class="jp-stat-hint" id="stat-version">—</span></div>
     </section>
 
-    <section class="section">
-      <div class="section-head"><h2>正在录制</h2><span id="recording-summary" class="subtitle">0 个任务</span></div>
-      <div class="section-body">
-        <table><thead><tr><th style="width:18%">模特</th><th style="width:36%">文件</th><th style="width:16%">大小</th><th style="width:18%">时长</th><th style="width:12%">操作</th></tr></thead><tbody id="recordings"></tbody></table>
-        <div id="recordings-empty" class="empty">当前没有录制任务</div>
+    <section class="jp-card">
+      <div class="jp-card-head"><h2>正在录制</h2><span class="jp-count" id="recording-count"></span></div>
+      <div class="jp-card-body flush">
+        <table class="jp-table" id="recording-table" hidden>
+          <thead><tr><th>主播</th><th>文件</th><th>大小</th><th>时长</th><th></th></tr></thead>
+          <tbody id="recording-body"></tbody>
+        </table>
+        <div class="jp-empty" id="recording-empty"><strong>暂无录制任务</strong>Wanted 中的主播开播后会自动开始录制</div>
       </div>
     </section>
 
-    <section class="section">
-      <div class="section-head"><h2>模型状态</h2><div class="section-tools"><select id="status-filter" aria-label="状态筛选"><option value="all">全部状态</option><option value="active">在线 / 录制</option><option value="paused">已暂停</option><option value="error">异常</option><option value="offline">离线</option></select><a class="link-btn" href="{{.base_path}}/wanted">管理 Wanted</a></div></div>
-      <div class="section-body"><div id="models" class="models"></div><div id="models-empty" class="empty">暂无模型状态</div></div>
+    <section class="jp-card">
+      <div class="jp-card-head">
+        <h2>主播状态</h2><span class="jp-count" id="model-count"></span>
+        <span class="jp-spacer"></span>
+        <a class="jp-btn sm" href="{{.base_path}}/wanted">管理 Wanted</a>
+      </div>
+      <div class="jp-card-body">
+        <div class="jp-toolbar model-tools">
+          <input class="jp-input" type="search" id="model-search" placeholder="搜索主播" autocomplete="off">
+          <div class="jp-seg" id="model-filter" role="group" aria-label="状态筛选">
+            <button type="button" data-filter="all" aria-pressed="true">全部</button>
+            <button type="button" data-filter="active">在线</button>
+            <button type="button" data-filter="problem">异常</button>
+            <button type="button" data-filter="paused">已暂停</button>
+            <button type="button" data-filter="idle">离线</button>
+          </div>
+        </div>
+        <div class="sc-models" id="models"></div>
+        <div class="jp-empty" id="models-empty" hidden></div>
+      </div>
     </section>
 
-    <div class="split">
-      <section class="section"><div class="section-head"><h2>上传队列</h2><span id="upload-state" class="status">-</span></div><div class="section-body"><dl class="kv"><dt>队列文件</dt><dd id="upload-files">-</dd><dt>队列大小</dt><dd id="upload-bytes">-</dd><dt>最近成功</dt><dd id="upload-success">-</dd><dt>最近错误</dt><dd id="upload-error">-</dd></dl></div></section>
-      <section class="section"><div class="section-head"><h2>磁盘</h2><span id="disk-percent" class="subtitle">-</span></div><div class="section-body"><dl class="kv"><dt>总容量</dt><dd id="disk-total">-</dd><dt>已使用</dt><dd id="disk-used">-</dd><dt>可用</dt><dd id="disk-available">-</dd></dl><div class="progress"><span id="disk-bar"></span></div></div></section>
+    <div class="jp-split">
+      <section class="jp-card">
+        <div class="jp-card-head"><h2>上传</h2><span class="jp-spacer"></span><span class="jp-badge" id="upload-state">—</span></div>
+        <div class="jp-card-body">
+          <dl class="jp-kv">
+            <dt>队列</dt><dd id="upload-queue">—</dd>
+            <dt>最近成功</dt><dd id="upload-success">—</dd>
+            <dt>最近错误</dt><dd id="upload-error">—</dd>
+            <dt>状态更新</dt><dd id="upload-updated">—</dd>
+          </dl>
+        </div>
+      </section>
+      <section class="jp-card">
+        <div class="jp-card-head"><h2>磁盘</h2><span class="jp-count" id="disk-percent"></span></div>
+        <div class="jp-card-body">
+          <dl class="jp-kv">
+            <dt>总容量</dt><dd id="disk-total">—</dd>
+            <dt>已使用</dt><dd id="disk-used">—</dd>
+            <dt>可用</dt><dd id="disk-free">—</dd>
+          </dl>
+          <div class="jp-meter disk-meter" id="disk-meter"><span></span></div>
+        </div>
+      </section>
     </div>
 
-    <section class="section"><div class="section-head"><h2>设置</h2></div><div class="section-body"><form id="settings-form" class="settings"><div class="field"><label for="segment-minutes">分段时长（分钟）</label><input id="segment-minutes" type="number" min="1" max="1440" value="{{.segment_minutes}}" required></div><button class="primary-btn" type="submit">保存设置</button></form><p id="settings-result" class="hint"></p></div></section>
+    <section class="jp-card">
+      <div class="jp-card-head"><h2>设置</h2></div>
+      <div class="jp-card-body">
+        <form class="jp-toolbar" id="settings-form">
+          <label for="segment-minutes">分段时长</label>
+          <input class="jp-input settings-minutes" id="segment-minutes" type="number" min="1" max="1440" value="{{.segment_minutes}}" required>
+          <span class="jp-muted">分钟</span>
+          <button class="jp-btn primary" type="submit">保存</button>
+          <span class="jp-muted settings-hint">新录制从下一段开始按新时长切分</span>
+        </form>
+      </div>
+    </section>
   </main>
-  <script>
-    (() => {
-      const body = document.body;
-      const base = body.dataset.basePath;
-      const csrf = body.dataset.csrfToken;
-      const byId = id => document.getElementById(id);
-      const state = { data: null, timer: null, controller: null };
-      const text = (id, value) => { byId(id).textContent = value; };
-      const node = (tag, className, value) => { const item = document.createElement(tag); if (className) item.className = className; if (value !== undefined) item.textContent = value; return item; };
-      const bytes = value => { const n = Number(value || 0); if (!n) return '0 B'; const units = ['B','KiB','MiB','GiB','TiB']; const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1); return `${(n / Math.pow(1024, i)).toFixed(i ? 1 : 0)} ${units[i]}`; };
-      const duration = seconds => { let n = Math.max(0, Number(seconds || 0)); const d = Math.floor(n / 86400); n %= 86400; const h = Math.floor(n / 3600); n %= 3600; const m = Math.floor(n / 60); return d ? `${d}天 ${h}小时` : h ? `${h}小时 ${m}分` : `${m}分`; };
-      const when = value => value ? new Date(value).toLocaleString('zh-CN', {hour12:false}) : '-';
-      const errorStates = new Set(['not_found','cloudflare_forbidden','rate_limited','network','invalid_response','server_error','http_error','configuration_error','error','uncertain','auth_error','flood_lock','timeout','blocked']);
-      const statusClass = value => errorStates.has(value) ? 'error' : value;
-      function setConnection(ok, message) { byId('connection-dot').className = `dot ${ok ? 'ok' : 'bad'}`; text('connection-text', message); byId('alert').classList.toggle('show', !ok); if (!ok) text('alert', message); }
-      async function request(path, options = {}) { const controller = new AbortController(); state.controller = controller; const timeout = setTimeout(() => controller.abort(), 8000); try { const response = await fetch(`${base}${path}`, {...options, signal: controller.signal, headers:{'Accept':'application/json', ...(options.body ? {'Content-Type':'application/json'} : {}), ...(options.method && options.method !== 'GET' ? {'X-CSRF-Token':csrf} : {}), ...(options.headers || {})}}); const payload = await response.json().catch(() => ({})); if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`); return payload; } finally { clearTimeout(timeout); } }
-      async function mutate(path, method, payload) { await request(path, {method, body: payload === undefined ? undefined : JSON.stringify(payload)}); await poll(); }
-      function renderRecordings(items) { const target = byId('recordings'); target.replaceChildren(); byId('recordings-empty').hidden = items.length > 0; text('recording-summary', `${items.length} 个任务`); for (const item of items) { const row = document.createElement('tr'); const values = [["模特",item.name,''],["文件",item.file,'mono'],["大小",bytes(item.bytes),'mono'],["时长",duration(item.elapsed_seconds),'']]; for (const [label,value,klass] of values) { const cell=node('td',klass,value); cell.dataset.label=label; row.append(cell); } const action=node('td'); action.dataset.label='操作'; const button=node('button','quiet-btn','暂停'); button.type='button'; button.title=`暂停 ${item.name}`; button.addEventListener('click', () => mutate(`/api/models/${encodeURIComponent(item.name)}/pause`,'POST').catch(showError)); action.append(button); row.append(action); target.append(row); } }
-      function filterModel(item, filter) { if (filter === 'all') return true; if (filter === 'active') return item.recording || item.status === 'public'; if (filter === 'paused') return item.paused; if (filter === 'error') return errorStates.has(item.status); if (filter === 'offline') return !item.recording && !item.paused && !errorStates.has(item.status) && item.status !== 'public'; return true; }
-      function renderModels(items) { const filter=byId('status-filter').value; const visible=items.filter(item => filterModel(item,filter)); const target=byId('models'); target.replaceChildren(); byId('models-empty').hidden=visible.length>0; for (const item of visible) { const box=node('div','model'); box.append(node('div','model-name',item.name)); const badge=node('span',`status ${statusClass(item.status)}`,item.status); box.append(badge); if (item.error) { const err=node('div','model-error',item.error); err.title=item.error; box.append(err); } const button=node('button','model-action',item.paused ? '▶' : 'Ⅱ'); button.type='button'; button.title=item.paused ? `恢复 ${item.name}` : `暂停 ${item.name}`; button.setAttribute('aria-label',button.title); button.addEventListener('click',()=>mutate(`/api/models/${encodeURIComponent(item.name)}/${item.paused?'resume':'pause'}`,'POST').catch(showError)); box.append(button); target.append(box); } }
-      function render(data) { state.data=data; const manager=data.manager; const paused=manager.models.filter(item=>item.paused).length; text('recording-count',manager.recordings.length); text('checking-note',`检查中 ${manager.checking_count}`); text('wanted-count',manager.wanted_count); text('paused-note',`暂停 ${paused}`); text('queue-count',data.upload.queue_files); text('queue-bytes',bytes(data.upload.queue_bytes)); text('disk-free',bytes(data.disk.free_bytes)); text('disk-note',`使用 ${data.disk.used_percent}%`); text('uptime',duration(data.app.uptime_seconds)); text('version',data.app.version); renderRecordings(manager.recordings); renderModels(manager.models); text('upload-files',String(data.upload.queue_files)); text('upload-bytes',bytes(data.upload.queue_bytes)); text('upload-success',data.upload.last_success ? `${data.upload.last_success.path} · ${when(data.upload.last_success.at)}` : '-'); const uploadError=data.upload.last_error; text('upload-error',uploadError ? uploadError.message : '-'); byId('upload-error').classList.toggle('error-text',Boolean(uploadError)); const uploadState=byId('upload-state'); uploadState.textContent=data.upload.state; uploadState.className=`status ${statusClass(data.upload.state)}`; text('disk-total',bytes(data.disk.total_bytes)); text('disk-used',bytes(data.disk.used_bytes)); text('disk-available',bytes(data.disk.free_bytes)); text('disk-percent',`${data.disk.used_percent}% 已使用`); const bar=byId('disk-bar'); bar.style.width=`${Math.min(100,data.disk.used_percent)}%`; bar.className=data.disk.used_percent>90?'danger':data.disk.used_percent>75?'warn':''; byId('segment-minutes').value=data.segment_minutes; }
-      function showError(error) { setConnection(false, error.name === 'AbortError' ? '请求超时，正在重试' : `服务失联：${error.message}`); }
-      async function poll() { if (state.controller) state.controller.abort(); try { const data=await request('/api/status'); render(data); setConnection(true,`已连接 · ${new Date().toLocaleTimeString('zh-CN',{hour12:false})}`); } catch(error) { showError(error); } finally { clearTimeout(state.timer); state.timer=setTimeout(poll,document.hidden?20000:4000); } }
-      byId('status-filter').addEventListener('change',()=>state.data&&renderModels(state.data.manager.models));
-      byId('settings-form').addEventListener('submit',async event=>{event.preventDefault(); const minutes=Number(byId('segment-minutes').value); try { await mutate('/api/settings/segment-duration','PUT',{minutes}); text('settings-result','设置已保存'); byId('settings-result').className='hint'; } catch(error) { text('settings-result',error.message); byId('settings-result').className='hint error-text'; }});
-      document.addEventListener('visibilitychange',()=>{clearTimeout(state.timer); state.timer=setTimeout(poll,document.hidden?20000:200);});
-      poll();
-    })();
-  </script>
+
+  <script src="{{.base_path}}/static/jp-ui.js"></script>
+  <script src="{{.base_path}}/static/sc.js"></script>
 </body>
 </html>

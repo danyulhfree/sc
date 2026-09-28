@@ -2,30 +2,48 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Wanted 管理 · SC Recorder</title>
-  <style>
-    :root{color-scheme:light;--bg:#f4f6f8;--surface:#fff;--ink:#17202a;--muted:#66727f;--line:#d9dee4;--accent:#087f5b;--danger:#b42318}*{box-sizing:border-box;letter-spacing:0}body{margin:0;background:var(--bg);color:var(--ink);font:14px Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.shell{width:min(960px,100%);margin:auto;padding:0 24px 40px}.topbar{min-height:64px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);gap:12px}.title{font-size:17px;font-weight:700}.back{color:var(--muted);text-decoration:none}.back:hover{color:var(--ink)}.section{background:var(--surface);border:1px solid var(--line);border-radius:6px;margin-top:16px;overflow:hidden}.head{min-height:52px;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);gap:12px}.head h1,.head h2{font-size:14px;margin:0}.body{padding:16px}.add{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}textarea{width:100%;min-height:76px;resize:vertical;border:1px solid #bcc4cc;border-radius:5px;padding:9px;font:inherit}textarea:focus,button:focus-visible,a:focus-visible{outline:2px solid #74c0a9;outline-offset:2px}button{font:inherit;cursor:pointer;border-radius:5px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:7px 11px}.primary{background:var(--accent);color:#fff;border-color:var(--accent)}.danger{color:var(--danger);border-color:#e8b4af}.models{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid #edf0f2;border-left:1px solid #edf0f2}.model{min-width:0;padding:9px 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;border-right:1px solid #edf0f2;border-bottom:1px solid #edf0f2}.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}.remove{width:32px;height:32px;padding:0;flex:0 0 auto}.muted{color:var(--muted);font-size:12px}.message{min-height:18px;margin:10px 0 0;color:var(--muted)}.message.error{color:var(--danger)}.empty{text-align:center;color:var(--muted);padding:24px}@media(max-width:680px){.shell{padding:0 12px 28px}.models{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:430px){.topbar{align-items:flex-start;flex-direction:column;padding:12px 0}.add{grid-template-columns:1fr}.add button{width:100%}.models{grid-template-columns:1fr}.body{padding:12px}}
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Wanted 管理 · Stripchat 录制</title>
+  <script>try{var t=localStorage.getItem('jp-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+  <link rel="stylesheet" href="{{.base_path}}/static/jp-ui.css">
+  <link rel="stylesheet" href="{{.base_path}}/static/sc.css">
 </head>
-<body data-base-path="{{.base_path}}" data-csrf-token="{{.csrf_token}}">
-  <main class="shell">
-    <header class="topbar"><div><a class="back" href="{{.base_path}}/">← 返回仪表盘</a><div class="title">Wanted 管理</div></div><span id="count" class="muted">-</span></header>
-    <section class="section"><div class="head"><h1>添加模型</h1></div><div class="body"><form id="add-form" class="add"><textarea id="models-input" aria-label="模型名称" placeholder="每行一个模型名称" maxlength="6500" required></textarea><button class="primary" type="submit">添加</button></form><p id="message" class="message"></p></div></section>
-    <section class="section"><div class="head"><h2>当前列表</h2><span id="duplicate" class="muted"></span></div><div class="body"><div id="models" class="models"></div><div id="empty" class="empty">列表为空</div></div></section>
+<body class="jp" data-base-path="{{.base_path}}" data-csrf-token="{{.csrf_token}}">
+  <header class="jp-top">
+    <a class="jp-home" href="{{.base_path}}/" title="返回录制面板">← 录制面板</a>
+    <div class="jp-brand">Wanted 管理</div>
+    <span class="jp-spacer"></span>
+    <button class="jp-btn icon sm ghost" id="theme" type="button"></button>
+  </header>
+
+  <main class="jp-main narrow">
+    <div class="jp-banner" id="banner" role="alert" hidden></div>
+
+    <section class="jp-card">
+      <div class="jp-card-head"><h2>添加主播</h2></div>
+      <div class="jp-card-body">
+        <form class="wanted-add" id="add-form">
+          <textarea class="jp-input" id="models-input" aria-label="主播名" placeholder="每行一个主播名或主页地址，也可以用逗号分隔" maxlength="6500" required></textarea>
+          <div class="jp-toolbar"><span class="jp-muted" id="add-preview"></span><span class="jp-spacer"></span><button class="jp-btn primary" type="submit">添加</button></div>
+        </form>
+      </div>
+    </section>
+
+    <section class="jp-card">
+      <div class="jp-card-head">
+        <h2>当前列表</h2><span class="jp-count" id="count"></span>
+      </div>
+      <div class="jp-card-body">
+        <div class="jp-banner" id="duplicate" data-tone="warn" hidden></div>
+        <div class="jp-toolbar"><input class="jp-input" type="search" id="search" placeholder="搜索" autocomplete="off"></div>
+        <div class="jp-chips wanted-list" id="models"></div>
+        <div class="jp-empty" id="empty" hidden></div>
+      </div>
+    </section>
   </main>
-  <script>
-    (()=>{
-      const base=document.body.dataset.basePath,csrf=document.body.dataset.csrfToken;
-      const byId=id=>document.getElementById(id);
-      const make=(tag,klass,value)=>{const item=document.createElement(tag);if(klass)item.className=klass;if(value!==undefined)item.textContent=value;return item;};
-      const show=(value,error=false)=>{byId('message').textContent=value;byId('message').className=`message${error?' error':''}`;};
-      async function api(path,options={}){const response=await fetch(`${base}${path}`,{...options,headers:{'Accept':'application/json',...(options.body?{'Content-Type':'application/json'}:{}),...(options.method&&options.method!=='GET'?{'X-CSRF-Token':csrf}:{})}});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);return data;}
-      async function load(){try{const data=await api('/api/wanted');render(data.models||[]);byId('duplicate').textContent=data.repeated_models?.length?`重复项：${data.repeated_models.join(', ')}`:'';}catch(error){show(error.message,true);}}
-      function render(models){const target=byId('models');target.replaceChildren();byId('empty').hidden=models.length>0;byId('count').textContent=`${models.length} 个模型`;for(const name of models){const row=make('div','model');row.append(make('span','name',name));const button=make('button','remove','×');button.type='button';button.title=`删除 ${name}`;button.setAttribute('aria-label',button.title);button.addEventListener('click',async()=>{if(!confirm(`确定删除 ${name}？`))return;try{await api(`/api/wanted/${encodeURIComponent(name)}`,{method:'DELETE'});show(`已删除 ${name}`);await load();}catch(error){show(error.message,true);}});row.append(button);target.append(row);}}
-      byId('add-form').addEventListener('submit',async event=>{event.preventDefault();const models=byId('models-input').value.split(/[\n,]+/).map(value=>value.trim()).filter(Boolean);try{const data=await api('/api/wanted',{method:'POST',body:JSON.stringify({models})});show(`已添加 ${data.added.length} 个模型`);byId('models-input').value='';await load();}catch(error){show(error.message,true);}});
-      load();
-    })();
-  </script>
+
+  <script src="{{.base_path}}/static/jp-ui.js"></script>
+  <script src="{{.base_path}}/static/wanted.js"></script>
 </body>
 </html>

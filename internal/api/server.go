@@ -134,6 +134,7 @@ func (s *Server) setupRoutes(templatesDir string) error {
 	basePath := s.config.Snapshot().BasePath
 	group := s.engine.Group(basePath)
 	group.GET("/", s.indexHandler)
+	group.Static("/static", filepath.Join(filepath.Dir(templatesDir), "static"))
 	group.GET("/wanted", s.wantedPageHandler)
 	group.GET("/api/health", s.healthHandler)
 	group.GET("/api/status", s.statusHandler)

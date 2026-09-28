@@ -1,0 +1,32 @@
+/* sc-specific layout on top of jp-ui.css */
+.jp-main.narrow { max-width: 900px; }
+.model-tools { margin-bottom: 12px; }
+.sc-models { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.sc-model {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 4px 8px;
+  padding: 8px 8px 8px 12px; border: 1px solid var(--jp-border); border-radius: var(--jp-radius-sm); background: var(--jp-surface);
+  min-width: 0;
+}
+.sc-model[data-group="active"] { border-color: color-mix(in srgb, var(--jp-live) 45%, var(--jp-border)); }
+.sc-model[data-group="problem"] { border-color: color-mix(in srgb, var(--jp-warn) 40%, var(--jp-border)); }
+.sc-model[data-group="paused"], .sc-model[data-group="idle"] .name { opacity: .8; }
+.sc-model .name { font-weight: 600; color: inherit; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-model .name:hover { color: var(--jp-accent); }
+.sc-model .detail { grid-column: 1 / -1; font-size: 12px; color: var(--jp-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-model .detail:empty { display: none; }
+[data-tone="danger"].detail, [data-tone="danger"].sub, dd[data-tone="danger"] { color: var(--jp-danger); }
+[data-tone="warn"].detail, [data-tone="warn"].sub { color: var(--jp-warn); }
+#recording-body .name { color: inherit; font-weight: 600; text-decoration: none; }
+#recording-body .file { font-size: 12px; overflow-wrap: anywhere; }
+.disk-meter { margin-top: 14px; }
+.settings-minutes { width: 96px; }
+.wanted-add { display: grid; gap: 10px; }
+.wanted-list { margin-top: 12px; }
+#duplicate { margin-bottom: 12px; }
+@media (max-width: 720px) {
+  .sc-models { grid-template-columns: 1fr; }
+  .model-tools .jp-seg { width: 100%; }
+  .model-tools .jp-seg { flex-wrap: nowrap; }
+  .model-tools .jp-seg button { flex: 1 1 auto; padding: 0 5px; font-size: 13px; }
+  .settings-hint { flex-basis: 100%; }
+}
