@@ -156,11 +156,13 @@
   var config = { loginPath: null, csrfHeader: null, csrfToken: null };
   function configure(options) { for (var k in options) config[k] = options[k]; }
 
+  // Behind jp.1press.top the site-wide login answers 401 when the session is gone (or a
+  // redirect to /login reaches fetch); a panel's own login page arrives as HTML.
   function isLoginResponse(response) {
     if (response.status === 401) return true;
     if (response.redirected && /(^|\/)login(\?|$)/.test(new URL(response.url).pathname)) return true;
     var type = response.headers.get('content-type') || '';
-    return config.loginPath && response.ok && type.indexOf('text/html') === 0;
+    return !!config.loginPath && response.ok && type.indexOf('text/html') === 0;
   }
 
   function request(url, options) {
@@ -175,8 +177,10 @@
       method: options.method || 'GET', headers: headers, body: options.body,
       credentials: 'same-origin', cache: 'no-store', signal: controller.signal
     }).then(function (response) {
-      if (config.loginPath && isLoginResponse(response)) {
-        location.assign(config.loginPath);  // relative, so it stays under the mount prefix
+      if (isLoginResponse(response)) {
+        // Reloading lets nginx send the page itself to /login?next=<this page>; a panel
+        // with its own login page names it in loginPath (relative to its mount prefix).
+        if (config.loginPath) location.assign(config.loginPath); else location.reload();
         throw new Error('登录已失效，正在跳转');
       }
       return response.text().then(function (text) {
