@@ -475,13 +475,25 @@ func (r *Recorder) capture(ctx context.Context, streamName, variantURL, psch, pk
 	}
 }
 
-func (r *Recorder) openSegment() (*os.File, error) {
+func (r *Recorder) openSegment() (segmentWriter, error) {
 	now := time.Now()
 	snapshot := config.Get().Snapshot()
 	path := filepath.Join(snapshot.SaveDirectory, r.model, fmt.Sprintf("%s_%s.mp4", now.Format("2006.01.02_15.04.05.000"), r.model))
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
 	if err != nil {
 		return nil, err
+	}
+	var writer segmentWriter = syncedFile{file}
+	// The name is reserved above; FFmpeg then writes the fragmented MP4 into it. Without
+	// FFmpeg the raw segments are kept and remuxed after recording, as before.
+	if ffmpeg, lookErr := exec.LookPath("ffmpeg"); lookErr == nil {
+		_ = file.Close()
+		sink, sinkErr := newFMP4Sink(ffmpeg, path)
+		if sinkErr != nil {
+			_ = os.Remove(path)
+			return nil, sinkErr
+		}
+		writer = sink
 	}
 	r.mu.Lock()
 	if r.recordStartTime.IsZero() {
@@ -494,16 +506,14 @@ func (r *Recorder) openSegment() (*os.File, error) {
 	r.status = "recording"
 	r.lastError = ""
 	r.mu.Unlock()
-	return file, nil
+	return writer, nil
 }
 
-func (r *Recorder) finishSegment(file *os.File, path, label string) error {
+func (r *Recorder) finishSegment(file segmentWriter, path, label string) error {
 	if file != nil {
-		if err := file.Sync(); err != nil {
-			return fmt.Errorf("sync %s: %w", path, err)
-		}
 		if err := file.Close(); err != nil {
-			return fmt.Errorf("close %s: %w", path, err)
+			// FFmpeg failing to finish still leaves the fragments it wrote playable.
+			logger.Event("[%s] 关闭录制文件出错: %s - %v", r.model, filepath.Base(path), err)
 		}
 	}
 	r.mu.Lock()
@@ -533,7 +543,9 @@ func (r *Recorder) handleCompletedFile(path, label string) error {
 		logger.Event("删除过小%s文件: %s", label, path)
 		return nil
 	}
-	if err := fixTimestamps(path); err != nil {
+	if isLiveFragmentedMP4(path) {
+		// Written as fragmented MP4 while recording: already playable, nothing to remux.
+	} else if err := fixTimestamps(path); err != nil {
 		logger.Event("[ffmpeg] 时间戳修复失败，保留原文件: %s - %v", filepath.Base(path), err)
 	}
 	return r.moveFileToUp(path)
@@ -893,12 +905,30 @@ func waitContext(ctx context.Context, stop <-chan struct{}, duration time.Durati
 	}
 }
 
-func writeAndSync(file *os.File, data []byte) error {
+func writeAndSync(file segmentWriter, data []byte) error {
 	if len(data) == 0 {
 		return errors.New("empty segment")
 	}
-	if _, err := file.Write(data); err != nil {
+	_, err := file.Write(data)
+	return err
+}
+
+// syncedFile writes raw segments straight to disk (when FFmpeg is unavailable),
+// syncing after each so a crash loses at most the segment being written.
+type syncedFile struct{ *os.File }
+
+func (f syncedFile) Write(p []byte) (int, error) {
+	n, err := f.File.Write(p)
+	if err != nil {
+		return n, err
+	}
+	return n, f.File.Sync()
+}
+
+func (f syncedFile) Close() error {
+	if err := f.File.Sync(); err != nil {
+		_ = f.File.Close()
 		return err
 	}
-	return file.Sync()
+	return f.File.Close()
 }
